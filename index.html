@@ -5,7 +5,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>휘경여자고등학교 과목 선택 시스템</title>
+  <title>휘경여고 과목 선택 시스템</title>
   
   <!-- Google Fonts - Noto Sans KR -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -179,6 +179,7 @@ const goToYear = (year) => {
 };
 const CHECK_MODE = URL_PARAMS.get('check') === '1';
 const STORAGE_KEY = `hwikyung_courses_${ACTIVE_YEAR}`;
+const DATA_CACHE_KEY = `hwikyung_data_${ACTIVE_YEAR}`;   // 시트 자료 임시 저장 (다음 접속 때 바로 표시)
 
 // 시트 탭 이름 (이 이름의 탭을 우선 사용하고, 없으면 제목 줄로 추측)
 const TAB_NAMES = {
@@ -614,6 +615,7 @@ function App() {
   const [activeSemesterTab, setActiveSemesterTab] = useState('2-1');
   const [isRightPanelExpanded, setIsRightPanelExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState(null);
   const [alertMessage, setAlertMessage] = useState(null);
   const [infoModalSubject, setInfoModalSubject] = useState(null);
@@ -789,47 +791,8 @@ function App() {
   }, [activeTab,dbFields,guideSelectedField]);
 
   // 데이터 Fetch
-  const fetchGoogleSheetData = async (isManual=false) => {
-    setIsLoading(true);
-    setFetchError(null);
-    const SHEET_URL = `${SHEET_URLS[ACTIVE_YEAR]}?t=${new Date().getTime()}`;
-
-    const fetchWithRetry = async (url, retries=5) => {
-      const delays=[1000,2000,4000,8000,16000];
-      for(let i=0;i<retries;i++){
-        try{
-          const response = await fetch(url);
-          if(!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-          return await response.text();
-       } catch(err){
-          if(i===retries-1) throw new Error(`서버와의 통신이 원활하지 않습니다. (원인: ${err.name}: ${err.message})`);
-          await new Promise(res=>setTimeout(res,delays[i]));
-       }
-      }
-    };
-
-    const checkText = (t, label) => {
-      if(!t||t.trim()==='') throw new Error(`${label} 데이터가 비어있습니다.`);
-      if(t.trim().startsWith('<')) throw new Error(`${label} 웹앱에 접근할 수 없습니다. 스크립트 배포 권한을 '모든 사용자'로 설정해주세요.`);
-    };
-
-    try {
-      // 입학년도 시트 + 공통 시트를 함께 불러와 합치기
-      const [yearText, commonText] = await Promise.all([
-        fetchWithRetry(SHEET_URL),
-        COMMON_SHEET_URL ? fetchWithRetry(`${COMMON_SHEET_URL}?t=${new Date().getTime()}`) : Promise.resolve(null),
-      ]);
-      checkText(yearText, `[${ACTIVE_YEAR} 시트]`);
-      let text = yearText;
-      const mergeNotes = [];
-      if (commonText !== null) {
-        checkText(commonText, '[공통 시트]');
-        const yearObj = JSON.parse(yearText), commonObj = JSON.parse(commonText);
-        Object.keys(commonObj).filter(k => k in yearObj).forEach(k => mergeNotes.push(`'${k}' 탭이 공통 시트와 ${ACTIVE_YEAR} 시트에 모두 있어 ${ACTIVE_YEAR} 시트의 것을 사용합니다.`));
-        mergeNotes.push(`공통 시트 탭: ${Object.keys(commonObj).join(', ')} / ${ACTIVE_YEAR} 시트 탭: ${Object.keys(yearObj).join(', ')}`);
-        text = JSON.stringify({ ...commonObj, ...yearObj });
-      }
-
+  // 시트 원본(JSON 글자)을 화면에 쓰는 데이터로 바꾸기
+  const applySheetText = (text, mergeNotes=[]) => {
       let parsedSubjects=[], parsedFields=[], parsedMajors=[], parsedConditions=[], parsedUnivRecs=[], parsedTimetable=[], dataArrays=[];
       let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[];
       const issues=[], notes=[...mergeNotes];
@@ -1129,17 +1092,74 @@ function App() {
       setDataIssues(issues);
       setDataNotes(notes);
       if (parsedTimetable && parsedTimetable.length > 0) setDbTimetableSheet(parsedTimetable);
-      setIsLoading(false);
+  };
 
+  // 1) 이 기기에 저장된 지난 자료로 화면을 먼저 보여 주고  2) 최신 자료를 뒤에서 받아 바꿔 끼움
+  const fetchGoogleSheetData = async (isManual=false) => {
+    let cachedText = null;
+    if (!isManual) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || 'null');
+        if (cached && cached.text) { applySheetText(cached.text, cached.notes || []); cachedText = cached.text; setIsLoading(false); }
+      } catch (e) { cachedText = null; }
+    }
+    if (cachedText === null) setIsLoading(true);
+    setIsRefreshing(true);
+    setFetchError(null);
+    const SHEET_URL = `${SHEET_URLS[ACTIVE_YEAR]}?t=${new Date().getTime()}`;
+
+    const fetchWithRetry = async (url, retries=5) => {
+      const delays=[1000,2000,4000,8000,16000];
+      for(let i=0;i<retries;i++){
+        try{
+          const response = await fetch(url);
+          if(!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          return await response.text();
+       } catch(err){
+          if(i===retries-1) throw new Error(`서버와의 통신이 원활하지 않습니다. (원인: ${err.name}: ${err.message})`);
+          await new Promise(res=>setTimeout(res,delays[i]));
+       }
+      }
+    };
+
+    const checkText = (t, label) => {
+      if(!t||t.trim()==='') throw new Error(`${label} 데이터가 비어있습니다.`);
+      if(t.trim().startsWith('<')) throw new Error(`${label} 웹앱에 접근할 수 없습니다. 스크립트 배포 권한을 '모든 사용자'로 설정해주세요.`);
+    };
+
+    try {
+      // 입학년도 시트 + 공통 시트를 함께 불러와 합치기
+      const [yearText, commonText] = await Promise.all([
+        fetchWithRetry(SHEET_URL),
+        COMMON_SHEET_URL ? fetchWithRetry(`${COMMON_SHEET_URL}?t=${new Date().getTime()}`) : Promise.resolve(null),
+      ]);
+      checkText(yearText, `[${ACTIVE_YEAR} 시트]`);
+      let text = yearText;
+      const mergeNotes = [];
+      if (commonText !== null) {
+        checkText(commonText, '[공통 시트]');
+        const yearObj = JSON.parse(yearText), commonObj = JSON.parse(commonText);
+        Object.keys(commonObj).filter(k => k in yearObj).forEach(k => mergeNotes.push(`'${k}' 탭이 공통 시트와 ${ACTIVE_YEAR} 시트에 모두 있어 ${ACTIVE_YEAR} 시트의 것을 사용합니다.`));
+        mergeNotes.push(`공통 시트 탭: ${Object.keys(commonObj).join(', ')} / ${ACTIVE_YEAR} 시트 탭: ${Object.keys(yearObj).join(', ')}`);
+        text = JSON.stringify({ ...commonObj, ...yearObj });
+      }
+
+
+      if (text !== cachedText) applySheetText(text, mergeNotes);
+      try { localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({ text, notes: mergeNotes, savedAt: Date.now() })); } catch (e) {}
+      setIsLoading(false);
     } catch(error) {
       console.error("Sheet Fetch Error:",error);
-      setFetchError(String(error.message||error) + "\n\n※ 웹앱 URL이 변경되었거나 접근 권한('모든 사용자')이 없는지 확인해 주세요.");
+      // 저장된 자료로 이미 화면을 보여 주고 있으면 오류 화면을 띄우지 않음
+      if (cachedText === null) setFetchError(String(error.message||error) + "\n\n※ 웹앱 URL이 변경되었거나 접근 권한('모든 사용자')이 없는지 확인해 주세요.");
       setIsLoading(false);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => { fetchGoogleSheetData(); }, []);
-  useEffect(() => { document.title = `${dbInfo.schoolName} 과목 선택 시스템 (${dbInfo.admissionYear}학년도 입학생)`; }, [dbInfo]);
+  useEffect(() => { document.title = `${ACTIVE_YEAR} ${dbInfo.schoolShort} 과목 선택 시스템`; }, [dbInfo]);
 
   const selectedSubjects = dbSubjects.filter(s=>selectedIds.includes(s.id));
 
@@ -1873,7 +1893,7 @@ function App() {
       {/* 헤더 */}
       <header className="mb-4 bg-white px-4 py-3 lg:px-6 lg:py-4 rounded-2xl shadow-sm border-l-[8px] border-blue-950 flex flex-col relative z-[250] shrink-0 no-print">
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 lg:gap-4">
-          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight">{dbInfo.schoolName} 과목 선택 시스템</h1>
+          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight">{ACTIVE_YEAR} {dbInfo.schoolShort} 과목 선택 시스템</h1>
           <span className="text-base font-bold text-white bg-blue-600 px-3 py-1 rounded-md shadow-sm">({dbInfo.admissionYear}학년도 입학생용)</span>
           <span className="text-2xl lg:text-3xl font-black text-blue-700 ml-1 tracking-tight">{gradeLabelOf(dbInfo.admissionYear).replace('현재 ','')}</span>
           {YEAR_OPTIONS.length>1&&(
@@ -1885,7 +1905,7 @@ function App() {
             </label>
           )}
           <button onClick={()=>fetchGoogleSheetData(true)} disabled={isLoading} className="ml-auto md:ml-2 flex items-center gap-1.5 text-base font-bold text-slate-700 bg-white border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm disabled:opacity-50">
-            🔄 {isLoading?'데이터 로딩 중...':'데이터 최신화'}
+            🔄 {isLoading?'데이터 로딩 중...':isRefreshing?'최신 자료 확인 중...':'데이터 최신화'}
           </button>
         </div>
         <div className="flex flex-col xl:flex-row justify-between items-center w-full mt-3 gap-4">
@@ -2607,7 +2627,7 @@ function YearChooser() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl border-t-8 border-blue-600 p-6 md:p-10 text-center">
-        <h1 className="text-2xl md:text-3xl font-black text-slate-900 mb-2">{DEFAULT_INFO.schoolName} 과목 선택 시스템</h1>
+        <h1 className="text-2xl md:text-3xl font-black text-slate-900 mb-2">{DEFAULT_INFO.schoolShort} 과목 선택 시스템</h1>
         <p className="text-base md:text-lg font-bold text-slate-600 mb-6 break-keep">나의 <span className="text-blue-700">입학년도</span>를 선택하세요.<br/>입학년도마다 선택과목과 조건이 다릅니다.</p>
         <div className="flex flex-col gap-3">
           {YEAR_OPTIONS.map(y=>(
