@@ -159,8 +159,18 @@ const LAST_YEAR_KEY = 'hwikyung_last_year';
 const YEARS_CACHE_KEY = 'hwikyung_years';
 const readLastYear = () => { try { return localStorage.getItem(LAST_YEAR_KEY); } catch (e) { return null; } };
 // 입학년도 결정 순서: 주소의 ?year= → 이 기기에서 마지막으로 고른 입학년도 → (없으면 선택 화면)
-const ACTIVE_YEAR = [URL_PARAMS.get('year'), readLastYear()].find(y => /^\d{4}$/.test(y || '')) || null;
-if (ACTIVE_YEAR && !URL_PARAMS.get('share')) { try { localStorage.setItem(LAST_YEAR_KEY, ACTIVE_YEAR); } catch (e) {} }
+// 짧은 공유 코드: ?s=2026g + 계열(5) + 학과(5) + 과목마다 5자리 (영문 소문자·숫자만 → 카카오톡에서 링크가 끊기지 않음)
+function shortHash(str) {
+  let h = 0x811c9dc5;
+  for (const ch of String(str)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36).padStart(7, '0').slice(-5);
+}
+const SHARE_CODE = (() => {
+  const m = (URL_PARAMS.get('s') || '').toLowerCase().match(/^(\d{4})([gs])([0-9a-z]{5})([0-9a-z]{5})((?:[0-9a-z]{5})*)$/);
+  return m ? { code: true, y: m[1], t: m[2], f: m[3], m: m[4], subs: m[5].match(/.{5}/g) || [] } : null;
+})();
+const ACTIVE_YEAR = [SHARE_CODE && SHARE_CODE.y, URL_PARAMS.get('year'), readLastYear()].find(y => /^\d{4}$/.test(y || '')) || null;
+if (ACTIVE_YEAR && !URL_PARAMS.get('share') && !SHARE_CODE) { try { localStorage.setItem(LAST_YEAR_KEY, ACTIVE_YEAR); } catch (e) {} }
 
 // 탭 이름 앞의 입학년도 떼어 내기: "2027_과목데이터" → { year: '2027', name: '과목데이터' }
 const splitYearTab = (tabName) => {
@@ -559,7 +569,7 @@ const decodeShare = (str) => {
     return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
   } catch (e) { return null; }
 };
-const SHARED = URL_PARAMS.get('share') ? decodeShare(URL_PARAMS.get('share')) : null;
+const SHARED = SHARE_CODE || (URL_PARAMS.get('share') ? decodeShare(URL_PARAMS.get('share')) : null);
 
 // ── 공지: "2027-03-05 수강신청 마감" → 날짜가 있으면 D-day, 지난 공지는 숨김 ──
 const parseNotices = (text) => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -937,6 +947,7 @@ function App() {
   // localStorage 불러오기
   useEffect(() => {
     // 공유 링크로 열었으면 공유받은 선택을 보여 줌 (이 기기의 저장 내용은 건드리지 않음)
+    if (SHARED && SHARED.code) { setIsScienceTrack(SHARED.t === 's'); setIsGeneralTrack(SHARED.t !== 's'); return; }
     if (SHARED) {
       setSelectedIds(Array.isArray(SHARED.s) ? SHARED.s : []);
       setSelectedField(SHARED.f || 'none');
@@ -968,10 +979,20 @@ function App() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo})); } catch (e) {}
   }, [selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo]);
 
-  // 내 선택을 링크로 만들기 (이름·학번은 넣지 않음)
+  useEffect(() => {
+    if (!(SHARED && SHARED.code) || dbSubjects.length === 0) return;
+    const want = new Set(SHARED.subs);
+    setSelectedIds(dbSubjects.filter(x => want.has(shortHash(x.id))).map(x => x.id));
+    const field = SHARED.f === '00000' ? 'none' : (dbFields.find(f => f.id !== 'none' && shortHash(f.id) === SHARED.f)?.id || 'none');
+    setSelectedField(field);
+    setSelectedMajor(SHARED.m === '00000' ? 'none' : ((dbMajors[field] || []).find(m => m.id !== 'none' && shortHash(m.id) === SHARED.m)?.id || 'none'));
+  }, [dbSubjects, dbFields, dbMajors]);
+
+  // 내 선택을 짧은 링크로 만들기 (이름·학번은 넣지 않음)
   const makeShareUrl = () => {
-    const data = { v: 1, y: ACTIVE_YEAR, t: isScienceTrack ? 's' : 'g', f: selectedField, m: selectedMajor, s: selectedIds };
-    return `${window.location.origin}${window.location.pathname}?year=${ACTIVE_YEAR}&share=${encodeShare(data)}`;
+    const hashOrZero = (v) => (!v || v === 'none') ? '00000' : shortHash(v);
+    const code = `${ACTIVE_YEAR}${isScienceTrack ? 's' : 'g'}${hashOrZero(selectedField)}${hashOrZero(selectedMajor)}${selectedIds.map(shortHash).join('')}`;
+    return `${window.location.origin}${window.location.pathname}?s=${code}`;
   };
   const shareMySelection = async () => {
     const url = makeShareUrl();
@@ -987,10 +1008,11 @@ function App() {
   };
   // 공유받은 선택을 내 기기에 저장하고 수정하기
   const importShared = () => {
+    try { localStorage.setItem(LAST_YEAR_KEY, ACTIVE_YEAR); } catch (e) {}
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ selectedIds, selectedField, selectedMajor, isScienceTrack, isGeneralTrack, studentInfo: { studentNum: '', name: '' } })); } catch (e) {}
-    const params = new URLSearchParams(window.location.search); params.delete('share'); window.location.search = params.toString();
+    const params = new URLSearchParams(window.location.search); params.delete('share'); params.delete('s'); window.location.search = params.toString();
   };
-  const leaveShared = () => { const params = new URLSearchParams(window.location.search); params.delete('share'); window.location.search = params.toString(); };
+  const leaveShared = () => { const params = new URLSearchParams(window.location.search); params.delete('share'); params.delete('s'); window.location.search = params.toString(); };
 
   useEffect(() => {
     if (activeTab==='major'&&guideSelectedField==='none'&&dbFields.length>1) {
@@ -2407,7 +2429,6 @@ function App() {
           <div className="flex flex-col items-center xl:items-start gap-1.5">
             <div className="flex flex-wrap justify-center xl:justify-start items-center gap-2">
               <p className="text-sm md:text-base font-medium text-slate-600 break-keep">자료출처: {dbInfo.source}</p>
-              <a href="https://drive.google.com/file/d/1FyQ979JatdFJpU7OVQGU8gvg4_k16Doo/view?usp=sharing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm md:text-base font-bold text-white bg-red-500 border border-red-600 px-3 py-1 rounded-md hover:bg-red-600">⬇ PDF 파일 다운로드</a>
             </div>
             <p className="text-sm md:text-base font-bold text-red-600 break-keep">본 페이지의 내용에 오류가 있을 수도 있으니 책자를 반드시 참고하여 확인 후 과목 선택을 하시길 바랍니다.</p>
           </div>
