@@ -748,6 +748,25 @@ function App() {
   const [isDraggingInfo, setIsDraggingInfo] = useState(false);
   const dragInfoOffset = useRef({ x: 0, y: 0 });
 
+  // 좌·우 화면 따로 스크롤 (컴퓨터 화면): 마우스가 있는 쪽만 스크롤
+  // 단, 위쪽 제목 영역이 보이는 동안은 페이지를 먼저 내려 제목을 올려 보냄
+  const mainRef = useRef(null), leftPaneRef = useRef(null), rightPaneRef = useRef(null);
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const onWheel = (e) => {
+      if (window.innerWidth < 768 || e.deltaY <= 0 || e.ctrlKey) return;
+      const top = main.getBoundingClientRect().top;
+      if (top > 1) { e.preventDefault(); window.scrollBy(0, Math.min(e.deltaY, top)); }
+    };
+    main.addEventListener('wheel', onWheel, { passive: false });
+    return () => main.removeEventListener('wheel', onWheel);
+  }, [isLoading, fetchError]);   // 로딩 화면이 끝나 본 화면이 나타난 뒤에 연결
+  const scrollPaneTop = (paneRef) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (paneRef.current) paneRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // 화면 크기에 맞는 팝업 바운더리 구속 헬퍼
   const restrictPosition = (x, y, popupWidth = 340, popupHeight = 400) => {
     const maxX = window.innerWidth - popupWidth;
@@ -2079,10 +2098,10 @@ function App() {
         </section>
       )}
 
-      <main className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full flex-1 relative no-print items-stretch">
+      <main ref={mainRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full flex-1 relative no-print items-stretch md:flex-none md:h-[calc(100vh-0.5rem)] md:grid-rows-[minmax(0,1fr)]">
         
         {/* ── 왼쪽 패널 ── */}
-        <div className={`w-full flex flex-col gap-3 relative ${isRightPanelExpanded ? 'md:hidden' : 'md:flex'}`}>
+        <div ref={leftPaneRef} className={`w-full flex flex-col gap-3 relative md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:hidden' : 'md:flex'}`}>
           {/* 진로 설정 섹션 */}
           <div className="flex flex-col gap-1.5 shrink-0">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-t-4 border-blue-600">
@@ -2322,7 +2341,7 @@ function App() {
         </div>
 
         {/* ── 오른쪽 패널 ── */}
-        <div className={`w-full flex flex-col transition-all duration-300 ${isRightPanelExpanded ? 'md:w-full md:col-span-2' : ''}`}>
+        <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:w-full md:col-span-2' : ''}`}>
           
           {/* 탭 버튼 (2단 그리드 적용) */}
           <div className="grid grid-cols-3 gap-1.5 lg:gap-2 mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2">
@@ -2771,16 +2790,16 @@ function App() {
 
       {/* TOP 이동 고정 버튼 (메인 화면용 - 좌/우 양쪽 배치) */}
       <button
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        onClick={() => scrollPaneTop(rightPaneRef)}
         className="fixed bottom-6 right-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
-        title="맨 위로 이동"
+        title="오른쪽 화면 맨 위로"
       >
         <span className="text-2xl font-black leading-none -mt-1">↑</span>
       </button>
       <button
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        onClick={() => scrollPaneTop(leftPaneRef)}
         className="fixed bottom-6 left-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
-        title="맨 위로 이동"
+        title="왼쪽 화면 맨 위로"
       >
         <span className="text-2xl font-black leading-none -mt-1">↑</span>
       </button>
