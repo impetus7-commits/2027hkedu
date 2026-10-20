@@ -1831,13 +1831,25 @@ function App() {
     return { ...j, matched: matched.map(m => ({ ...m, ...reasonFor(j, m) })), notOffered };
   }, [dbJobs, selectedJob, schoolSubjectIndex, selectedIds]);
 
-  // 직업 → 관련 학과: [AI직업데이터]는 '관련 학과' 칸, [직업데이터]는 학과데이터의 '졸업 후 진로'에 직업 이름이 나오는 학과
+  // 직업 → 관련 학과: 시트의 '관련 학과' 칸이 있으면 그대로, 없으면 학과데이터 '졸업 후 진로'에 직업 이름이 '그대로' 나오는 학과
+  //   (글자 일부로 찾으면 '외국어 교사' 안의 '국어 교사'처럼 엉뚱하게 걸리므로 항목 단위로 비교)
   const jobMajors = useMemo(() => {
     if (!jobInfo) return [];
     if (jobInfo.majors) return splitUnits(jobInfo.majors).map(x => x.replace(/\s*등$/, '').trim()).filter(Boolean).slice(0, 6);
     const parts = jobInfo.job.split('/').map(x => normLoose(x.replace(/\(.*?\)/g, ''))).filter(x => x.length >= 2);
-    return Object.values(dbDepartmentDetails).filter(d => parts.some(p => normLoose(d.careerPaths).includes(p))).map(d => d.name).slice(0, 6);
+    const items = (t) => String(t || '').split(/[,\n·∙•()]/).map(x => normLoose(x.replace(/\s*등$/, '')).replace(/^(중등|고등|초등|중학교|고등학교)/, ''));
+    return Object.values(dbDepartmentDetails).filter(d => items(d.careerPaths).some(it => parts.includes(it))).map(d => d.name).slice(0, 6);
   }, [jobInfo, dbDepartmentDetails]);
+  // 구체적인 학과 이름(국어교육과) → 학과 가이드의 학과(언어 교과 교육과, 유사학과에 국어교육과)
+  const guideDeptFor = (name) => {
+    if (dbDepartmentDetails[name]) return name;
+    const n = normLoose(name);
+    const hits = Object.values(dbDepartmentDetails).filter(x => normLoose(x.name) === n || String(x.similarDepts || '').split(/[,\n·]/).some(y => normLoose(y.replace(/\s*등$/, '')) === n));
+    // 여러 학과의 유사학과에 같이 있으면 '교육과'는 교육 계열 학과 쪽으로 (국어교육과 → 언어 교과 교육과)
+    const edu = n.includes('교육');
+    const d = hits.find(x => normLoose(x.name).includes('교육') === edu) || hits[0];
+    return d ? d.name : null;
+  };
   useEffect(() => { setUnivPanel({ open: false, major: '', loading: false, error: '', data: null }); }, [selectedJob]);
   const loadUniversities = async (major) => {
     setUnivPanel(p => ({ ...p, open: true, major, loading: true, error: '', data: univCacheRef.current[major] || null }));
@@ -3281,7 +3293,7 @@ function App() {
                               {jobMajors.map(m=>(
                                 <span key={m} className="inline-flex items-center gap-1">
                                   <button onClick={()=>loadUniversities(m)} className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${univPanel.major===m?'bg-indigo-700 text-white border-indigo-700':'bg-white text-indigo-900 border-indigo-300 hover:border-indigo-500'}`}>{m}</button>
-                                  {dbDepartmentDetails[m]&&<button onClick={()=>{setGuideSelectedField(dbDepartmentDetails[m].field);setGuideSelectedMajor(m);goTab('major');}} className="text-xs font-bold text-blue-700 underline">학과 가이드</button>}
+                                  {(()=>{const g=guideDeptFor(m); return g&&<button onClick={()=>{setGuideSelectedField(dbDepartmentDetails[g].field);setGuideSelectedMajor(g);goTab('major');}} title={g!==m?`학과 가이드: ${g}`:undefined} className="text-xs font-bold text-blue-700 underline">학과 가이드</button>;})()}
                                 </span>
                               ))}
                             </div>
