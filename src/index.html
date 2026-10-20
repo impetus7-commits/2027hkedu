@@ -1830,18 +1830,34 @@ function App() {
   };
   const compareSubjects = compareNames.map(n => n ? uniqueElectiveSubjects.find(x => x.name === n) : null);
 
-  // 권장 과목 만족도: 내가 담은 선택 과목 중 희망 계열·학과의 권장 과목에 들어 있는 과목의 비율
-  // (학교 지정 과목은 빼고, 학과를 골랐으면 계열 권장 + 학과 권장을 함께 봄 = 화면의 추천 표시와 같음)
+  // 권장 과목 만족도 (학교 지정 과목 제외, 계열 권장 + 학과 권장 = 화면의 추천 표시와 같음)
+  //  군마다: 담은 과목 수(n)와 그 군에 있는 권장 과목 수(r) 중 작은 값 = '고를 수 있었던 권장 자리'
+  //  만족도 = 담은 권장 과목 수 ÷ 고를 수 있었던 권장 자리의 합
+  //  → 권장 과목이 없는 군(r=0)은 저절로 빠지고, 권장 과목이 적은 군은 그만큼만 셈
   const recommendFit = useMemo(() => {
     if (selectedField === 'none') return null;
     const recNorm = new Set([...fieldRecommendedSet, ...(selectedMajor !== 'none' ? majorRecommendedSet : [])].map(r => normalizeForMatch(r)));
     if (recNorm.size === 0) return null;
-    const mine = [...new Map(selectedSubjects.map(x => [normalizeForMatch(x.name), x])).values()];
-    if (mine.length === 0) return { pct: 0, matched: 0, total: 0, outside: [], basis: selectedMajor !== 'none' ? '계열·학과' : '계열' };
-    const inRec = mine.filter(x => recNorm.has(normalizeForMatch(x.name)));
-    return { pct: Math.round(inRec.length / mine.length * 100), matched: inRec.length, total: mine.length,
-             outside: mine.filter(x => !recNorm.has(normalizeForMatch(x.name))).map(x => x.name), basis: selectedMajor !== 'none' ? '계열·학과' : '계열' };
-  }, [selectedField, selectedMajor, majorRecommendedSet, fieldRecommendedSet, selectedSubjects]);
+    const isRec = (x) => recNorm.has(normalizeForMatch(x.name));
+    const basis = selectedMajor !== 'none' ? '계열·학과' : '계열';
+    let slots = 0, matched = 0, picked = 0;
+    const excluded = [], outside = [];
+    GROUPS.forEach(g => {
+      const mine = selectedSubjects.filter(x => x.group === g.id);
+      if (mine.length === 0) return;
+      picked += mine.length;
+      const recOptions = new Set(dbSubjects.filter(x => x.group === g.id && isRec(x)).map(x => normalizeForMatch(x.name))).size;
+      const gSlots = Math.min(mine.length, recOptions);
+      const gMatched = mine.filter(isRec).length;
+      slots += gSlots; matched += Math.min(gMatched, gSlots);
+      const notRec = mine.filter(x => !isRec(x));
+      // 권장 자리를 넘는 '권장 아님' 과목은 계산에서 제외 (고를 권장 과목이 없었음)
+      const extra = Math.max(0, mine.length - gSlots);
+      notRec.slice(0, Math.max(0, notRec.length - extra)).forEach(x => outside.push(x.name));
+      notRec.slice(Math.max(0, notRec.length - extra)).forEach(x => excluded.push(`${x.name}(${g.label}군)`));
+    });
+    return { pct: slots ? Math.round(matched / slots * 100) : null, matched, slots, picked, excluded, outside, basis };
+  }, [selectedField, selectedMajor, majorRecommendedSet, fieldRecommendedSet, selectedSubjects, dbSubjects, GROUPS]);
   const fitColor = (p) => p >= 80 ? '#15803d' : p >= 50 ? '#b45309' : '#b91c1c';
 
   // 편제표 렌더링
@@ -1864,13 +1880,16 @@ function App() {
           <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-sm lg:text-base print:text-[9pt] whitespace-nowrap">
             <span><span className="font-bold text-slate-600">희망 계열:</span> <b className="text-blue-900">{selectedField!=='none'?selectedField:'선택 안 함'}</b></span>
             <span><span className="font-bold text-slate-600">희망 학과:</span> <b className="text-blue-900">{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</b></span>
-            {recommendFit?(
-              <span className="inline-flex items-center gap-1.5" title={recommendFit.outside.length?`권장 과목이 아닌 선택 과목: ${recommendFit.outside.join(', ')}`:'선택한 과목이 모두 권장 과목입니다'}>
+            {recommendFit&&recommendFit.pct!==null?(
+              <span className="inline-flex items-center gap-1.5"
+                title={`계산: 군마다 '담은 과목 수'와 '그 군의 권장 과목 수' 중 작은 값만큼을 고를 수 있었던 권장 자리로 봅니다.${recommendFit.outside.length?`\n권장 과목이 아닌 선택: ${recommendFit.outside.join(', ')}`:''}${recommendFit.excluded.length?`\n계산에서 제외(그 군에 고를 권장 과목이 없었음): ${recommendFit.excluded.join(', ')}`:''}`}>
                 <span className="font-bold text-slate-600">권장 과목 만족도:</span>
                 <b style={{color:fitColor(recommendFit.pct)}}>{recommendFit.pct}%</b>
                 <span className="inline-block w-16 h-2 rounded-full bg-slate-200 overflow-hidden align-middle print:w-10"><span className="block" style={{width:`${recommendFit.pct}%`,borderTop:`8px solid ${fitColor(recommendFit.pct)}`}}></span></span>
-                <span className="text-xs lg:text-sm text-slate-500 print:text-[8pt]">{recommendFit.total?`(선택 ${recommendFit.total}과목 중 권장 ${recommendFit.matched}과목)`:'(아직 담은 과목이 없습니다)'}</span>
+                <span className="text-xs lg:text-sm text-slate-500 print:text-[8pt]">(권장 {recommendFit.slots}자리 중 {recommendFit.matched}{recommendFit.excluded.length?` · 권장 없는 ${recommendFit.excluded.length}과목 제외`:''})</span>
               </span>
+            ):recommendFit?(
+              <span className="text-sm text-slate-400">권장 과목 만족도: 권장 과목이 있는 군에서 담은 과목이 아직 없습니다</span>
             ):(
               <span className="text-sm text-slate-400">권장 과목 만족도: 희망 계열을 고르면 계산됩니다</span>
             )}
