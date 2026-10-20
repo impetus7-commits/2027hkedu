@@ -1334,7 +1334,7 @@ function App() {
         setDbJobs(parsedJobs.slice(1).map(r => {
           const reasons = {};
           cell(r, ji.why).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) reasons[normLoose(m[1])] = m[2].trim(); });
-          return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons };
+          return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons, whyRaw: cell(r, ji.why), hasWhyColumn: ji.why !== -1 };
         }).filter(j => j.job));
       } else setDbJobs([]);
       // 용어풀이: 용어 | 설명 (기본 용어에 더하거나 덮어씀)
@@ -1728,6 +1728,24 @@ function App() {
   };
 
   // ── 직업으로 찾기 ──
+  // 과목별 추천 이유: 시트의 이유(같은 이름 → 제2외국어·한문 묶음 → 이름 일부 일치)
+  // 시트에 없으면 [과목소개] 한 줄 소개로 이유를 만들어 보여 줌 (점검 화면에서 시트에 넣을 문장 제공)
+  const reasonFor = (j, m) => {
+    const n = normLoose(m.name), keys = Object.keys(j.reasons);
+    const type = normalizeType(m.entries?.[0]?.type || '', m.name);
+    let text = j.reasons[n]
+      || (/한문|한자/.test(m.name) && j.reasons[normLoose('한문')])
+      || (type === '제2외국어/한문' && j.reasons[normLoose('제2외국어')])
+      || (() => { const k = keys.find(k => n.includes(k) || k.includes(n)); return k ? j.reasons[k] : ''; })();
+    if (text) return { reason: text, reasonFromSheet: true };
+    const entry = m.entries?.[0];
+    const intro = String(entry?.popupData?.desc || entry?.desc || '').replace(/\s+/g, ' ').trim();
+    let learn = intro ? (intro.match(/^.*?(?:니다|어요|해요|이다|한다)[.]?/) || [intro])[0] : '';
+    if (learn.length > 90) learn = learn.slice(0, 88) + '…';
+    const area = type.replace(' (역사/도덕 포함)', '').replace('기타', '관련');
+    const jobName = j.job.split('/')[0].replace(/\(.*\)/, '').trim();
+    return { reason: `${jobName} 일에 필요한 ${area} 분야의 바탕을 다질 수 있어서 → ${learn || `${m.name}의 핵심 내용을 배워요.`}`, reasonFromSheet: false };
+  };
   const jobInfo = useMemo(() => {
     const j = dbJobs.find(x => x.job === selectedJob);
     if (!j) return null;
@@ -1735,18 +1753,20 @@ function App() {
     const have = new Set(matched.map(m => normLoose(m.name)));
     const notOffered = splitUnits(j.subjectsText.replace(/\s*등\s*$/, '')).map(x => x.replace(/\s*등$/, '').trim())
       .filter(x => x && !have.has(normLoose(x)) && !matched.some(m => normLoose(x).includes(normLoose(m.name))));
-    // 과목별 추천 이유 찾기: 같은 이름 → 제2외국어·한문 묶음 → 이름 일부 일치
-    const reasonOf = (m) => {
-      const name = m.name, n = normLoose(name), keys = Object.keys(j.reasons);
-      if (j.reasons[n]) return j.reasons[n];
-      const type = normalizeType(m.entries?.[0]?.type || '', name);
-      if (/한문|한자/.test(name) && j.reasons[normLoose('한문')]) return j.reasons[normLoose('한문')];
-      if (type === '제2외국어/한문' && j.reasons[normLoose('제2외국어')]) return j.reasons[normLoose('제2외국어')];
-      const k = keys.find(k => n.includes(k) || k.includes(n));
-      return k ? j.reasons[k] : '';
-    };
-    return { ...j, matched: matched.map(m => ({ ...m, reason: reasonOf(m) })), notOffered };
+    return { ...j, matched: matched.map(m => ({ ...m, ...reasonFor(j, m) })), notOffered };
   }, [dbJobs, selectedJob, schoolSubjectIndex, selectedIds]);
+
+  // ── (점검 화면) 시트에 추천 이유가 없는 과목 → 붙여 넣을 문장 ──
+  const jobReasonGaps = useMemo(() => {
+    if (!CHECK_MODE) return [];
+    return dbJobs.map(j => {
+      const missing = matchSchoolSubjects(j.subjectsText).map(m => ({ name: m.name, ...reasonFor(j, m) })).filter(x => !x.reasonFromSheet);
+      if (!missing.length && j.does) return null;
+      const newLines = missing.map(x => `${x.name}: ${x.reason}`);
+      return { job: j.job, missing: missing.map(x => x.name), noDoes: !j.does, cellText: [j.whyRaw, ...newLines].filter(Boolean).join('\n') };
+    }).filter(Boolean);
+  }, [dbJobs, schoolSubjectIndex]);
+  const copyText = async (text, setMsg) => { try { await navigator.clipboard.writeText(text); setMsg && setMsg('복사했습니다.'); } catch (e) { window.prompt('복사해서 시트에 붙여 넣으세요.', text); } };
 
   // ── 과목 비교 ──
   const compareOptions = useMemo(() => [...uniqueElectiveSubjects].sort((a, b) => {
@@ -2447,6 +2467,29 @@ function App() {
           {dataIssues.length===0
             ? <p className="text-base font-black text-green-700">✅ 발견된 문제가 없습니다.</p>
             : <ul className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar">{dataIssues.map((n,i)=><li key={i} className="text-sm font-bold text-red-700">⚠️ {n}</li>)}</ul>}
+          {/* 직업 추천 이유 점검 */}
+          <div className="mt-3 p-3 rounded-xl bg-white border border-amber-300">
+            <div className="font-black text-slate-800 mb-1">💼 [직업데이터] 추천 이유 점검</div>
+            {dbJobs.length>0&&!dbJobs[0].hasWhyColumn&&<p className="text-sm font-bold text-red-700 mb-1">⚠️ [직업데이터] 탭에 '하는 일', '과목별 추천 이유' 열이 없습니다. 통합시트_예시.xlsx의 [직업데이터] 탭으로 바꿔 넣으면 51개 직업의 이유가 한 번에 들어갑니다.</p>}
+            {jobReasonGaps.length===0?(
+              <p className="text-sm font-black text-green-700">✅ 모든 직업의 과목에 추천 이유와 하는 일이 들어 있습니다.</p>
+            ):(<>
+              <p className="text-xs lg:text-sm text-slate-600 mb-2 break-keep">아래 {jobReasonGaps.length}개 직업은 시트에 이유가 없는 과목이 있어, 학생 화면에는 [과목소개]로 만든 기본 문장이 보입니다. 문장을 다듬은 뒤 <b>[복사]</b>해서 시트의 '과목별 추천 이유' 칸에 통째로 바꿔 넣으세요. (기존 이유 + 새 문장)</p>
+              <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
+                {jobReasonGaps.map(g=>(
+                  <div key={g.job} className="p-2 rounded-lg border border-slate-200">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <b className="text-slate-900">{g.job}</b>
+                      {g.missing.length>0&&<span className="text-xs text-amber-800">이유 없음: {g.missing.join(', ')}</span>}
+                      {g.noDoes&&<span className="text-xs text-red-700">'하는 일' 비어 있음</span>}
+                      <button onClick={()=>copyText(g.cellText)} className="ml-auto px-2 py-1 rounded-md bg-amber-600 text-white text-xs font-bold">복사</button>
+                    </div>
+                    <textarea readOnly value={g.cellText} rows={Math.min(6, g.cellText.split('\n').length)} className="w-full text-xs p-2 border border-slate-200 rounded bg-slate-50"/>
+                  </div>
+                ))}
+              </div>
+            </>)}
+          </div>
           <details className="mt-3">
             <summary className="cursor-pointer text-sm font-bold text-slate-700">선택군 · 규칙 목록 보기</summary>
             <div className="mt-2 grid gap-1 text-sm text-slate-700">
@@ -3031,12 +3074,10 @@ function App() {
                               return (
                                 <div key={m.name} className="flex flex-col lg:flex-row lg:items-start gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
                                   <div className="shrink-0 lg:w-[38%]">{renderSubjectChips([m])}</div>
-                                  {m.reason?(
                                     <div className="flex-1 text-sm lg:text-base break-keep leading-relaxed">
                                       <div><span className="font-black text-blue-800">왜?</span> <span className="text-slate-800">{aspect}</span></div>
                                       {learn&&<div><span className="font-black text-green-700">무엇을?</span> <span className="text-slate-700">{learn}</span></div>}
                                     </div>
-                                  ):<div className="flex-1 text-sm text-slate-400">(추천 이유가 아직 없습니다 — 시트 [직업데이터]의 과목별 추천 이유에 추가할 수 있어요)</div>}
                                 </div>
                               );
                             })}
