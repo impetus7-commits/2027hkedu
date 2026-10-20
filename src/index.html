@@ -793,6 +793,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [blockInfo, setBlockInfo] = useState(null);
   const [shareMsg, setShareMsg] = useState('');
+  const [reportShowGuide, setReportShowGuide] = useState(true);
+  const [reportShowDetail, setReportShowDetail] = useState(true);
   const [univSel, setUnivSel] = useState({ univ: '', college: '', unit: '' });
   const [dbSubjects, setDbSubjects] = useState([]);
   const [dbMandatory, setDbMandatory] = useState(DEFAULT_MANDATORY_SUBJECTS);
@@ -1828,8 +1830,24 @@ function App() {
   };
   const compareSubjects = compareNames.map(n => n ? uniqueElectiveSubjects.find(x => x.name === n) : null);
 
+  // 권장 과목 만족도: 희망 학과(없으면 계열)의 권장 과목 중 우리 학교에서 배울 수 있는 과목을
+  // 담았거나 학교 지정 과목인 비율
+  const recommendFit = useMemo(() => {
+    if (selectedField === 'none') return null;
+    const recSet = selectedMajor !== 'none' ? majorRecommendedSet : fieldRecommendedSet;
+    if (!recSet || recSet.size === 0) return null;
+    const recNorm = new Set([...recSet].map(r => normalizeForMatch(r)));
+    const offered = schoolSubjectIndex.filter(o => recNorm.has(normalizeForMatch(o.name)));
+    if (offered.length === 0) return null;
+    const isTaken = o => o.kind === 'mandatory' || o.entries.some(e => selectedIds.includes(e.id));
+    const taken = offered.filter(isTaken);
+    return { pct: Math.round(taken.length / offered.length * 100), taken: taken.length, total: offered.length,
+             missing: offered.filter(o => !isTaken(o)).map(o => o.name), basis: selectedMajor !== 'none' ? '학과' : '계열' };
+  }, [selectedField, selectedMajor, majorRecommendedSet, fieldRecommendedSet, schoolSubjectIndex, selectedIds]);
+  const fitColor = (p) => p >= 80 ? '#15803d' : p >= 50 ? '#b45309' : '#b91c1c';
+
   // 편제표 렌더링
-  const renderTimetable = () => (
+  const renderTimetable = (opts = {}) => (
     <div className="w-full h-full flex flex-col relative px-2 lg:px-4 bg-white print:p-0 print:h-auto">
       <div className="flex flex-wrap justify-between items-center gap-3 mt-2 mb-2 bg-white/80 p-1.5 rounded-xl print:p-0 print:mb-2 print:mt-0 print:bg-white">
         <div className="flex items-center gap-1.5 lg:gap-3 flex-wrap">
@@ -1844,6 +1862,22 @@ function App() {
             {isScienceTrack&&<div className="ml-2 px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-sm font-black rounded-lg border border-blue-600 print:px-1.5 print:py-0.5 print:text-[8pt] print:border-slate-800 print:text-black print:bg-none">✦ 과학중점 과정</div>}
           </div>
         </div>
+        {opts.inReport&&(
+          <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-sm lg:text-base print:text-[9pt] whitespace-nowrap">
+            <span><span className="font-bold text-slate-600">희망 계열:</span> <b className="text-blue-900">{selectedField!=='none'?selectedField:'선택 안 함'}</b></span>
+            <span><span className="font-bold text-slate-600">희망 학과:</span> <b className="text-blue-900">{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</b></span>
+            {recommendFit?(
+              <span className="inline-flex items-center gap-1.5" title={recommendFit.missing.length?`아직 선택하지 않은 권장 과목: ${recommendFit.missing.join(', ')}`:'권장 과목을 모두 선택했습니다'}>
+                <span className="font-bold text-slate-600">{recommendFit.basis} 권장 과목 만족도:</span>
+                <b style={{color:fitColor(recommendFit.pct)}}>{recommendFit.pct}%</b>
+                <span className="inline-block w-16 h-2 rounded-full bg-slate-200 overflow-hidden align-middle print:w-10"><span className="block" style={{width:`${recommendFit.pct}%`,borderTop:`8px solid ${fitColor(recommendFit.pct)}`}}></span></span>
+                <span className="text-xs lg:text-sm text-slate-500 print:text-[8pt]">({recommendFit.taken}/{recommendFit.total}과목)</span>
+              </span>
+            ):(
+              <span className="text-sm text-slate-400">권장 과목 만족도: 희망 계열을 고르면 계산됩니다</span>
+            )}
+          </div>
+        )}
         <div className="hidden xl:flex items-center gap-2 text-xs lg:text-sm font-bold bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm flex-wrap print:flex print:w-full print:border-none print:shadow-none print:p-0 print:gap-1.5 print:mt-1 print:justify-start">
           <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span><Term k="수능 출제">{CSAT_SHORT} 출제</Term></span>
           <span className="flex items-center gap-1 text-orange-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-white border-[3px] border-orange-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>계열 추천</span>
@@ -1993,6 +2027,18 @@ function App() {
         <div id="report-wrapper" style={RS.wrapper}>
           <div className="no-print" style={RS.toolbar}>
             <h2 style={{fontSize:'1.25rem',fontWeight:900,color:'#1f2937'}}>나만의 선택과목 보고서 (인쇄 미리보기)</h2>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'8px',alignItems:'center',fontSize:'0.9rem',fontWeight:700,color:'#374151'}}>
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>2. 맞춤형 진로 가이드
+                <select value={reportShowGuide?'y':'n'} onChange={e=>setReportShowGuide(e.target.value==='y')} aria-label="맞춤형 진로 가이드 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
+                  <option value="y">인쇄 포함</option><option value="n">빼기</option>
+                </select>
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>3. 선택 과목 상세 정보
+                <select value={reportShowDetail?'y':'n'} onChange={e=>setReportShowDetail(e.target.value==='y')} aria-label="선택 과목 상세 정보 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
+                  <option value="y">인쇄 포함</option><option value="n">빼기</option>
+                </select>
+              </label>
+            </div>
             <div style={{display:'flex',gap:'8px'}}>
               <button id="back-btn" onClick={()=>setActiveTab(tabBeforeReport.current||'planner')} style={{padding:'8px 16px',background:'#e5e7eb',color:'#374151',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>← 돌아가기</button>
               <button id="print-btn" onClick={()=>window.print()} style={{padding:'8px 20px',background:'#00703C',color:'white',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px',whiteSpace:'nowrap'}}>🖨️ 출력 / PDF 저장</button>
@@ -2007,11 +2053,12 @@ function App() {
             <div className="report-section" style={{marginBottom:'0'}}>
               <h3 style={{...RS.secTitle, borderLeftColor:'#00703C', color:'#003D20'}}>📋 1. 나의 교육과정 편제표</h3>
               <div style={{border:'2px solid #d1d5db',borderRadius:'12px',overflow:'hidden',background:'white',padding:'8px'}} className="print:p-1 print:border-slate-800">
-                {renderTimetable()}
+                {renderTimetable({ inReport: true })}
               </div>
             </div>
           </div>
 
+          {reportShowGuide&&(
           <div className="report-section print-tight-section" style={{marginBottom:'32px'}}>
             <h3 style={{...RS.secTitle, borderLeftColor:'#7c3aed', color:'#00512B'}}>🗺️ 2. 맞춤형 진로 가이드</h3>
             <div style={RS.guideBox} className="print-tight-guide">
@@ -2062,7 +2109,9 @@ function App() {
               )}
             </div>
           </div>
+          )}
 
+          {reportShowDetail&&(
           <div className="report-section">
             <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 3. 선택 과목 상세 정보</h3>
             {selectedSubjects.length===0&&(
@@ -2206,6 +2255,7 @@ function App() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* TOP 이동 고정 버튼 (보고서 화면용 - 좌/우 양쪽 배치) */}
