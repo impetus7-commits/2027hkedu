@@ -1389,8 +1389,14 @@ function App() {
                    isSelected: s.kind === 'mandatory' || selectedSubjects.some(x => normLoose(x.name) === normLoose(s.name)) }))
       .sort((a, b) => (b.isCore - a.isCore) || (normLoose(text).indexOf(normLoose(a.name)) - normLoose(text).indexOf(normLoose(b.name))));
     const sameRow = univUnits.filter(x => x.rowKey === univResult.rowKey).map(x => x.unit);
+    // 우리 학교 개설 학기 (같은 과목이 여러 학기에 있으면 모두): 예) 2-1·2-2학기
+    const semMap = {};
+    const addSem = (name, sem) => { const k = normLoose(name); if (!sem) return; (semMap[k] = semMap[k] || new Set()).add(sem); };
+    dbSubjects.forEach(x => addSem(x.name, groupMap[x.group]?.semester));
+    Object.entries(dbMandatory).forEach(([sem, list]) => list.forEach(m => addSem(m.name, sem)));
+    matched.forEach(m => { const set = semMap[normLoose(m.name)]; m.semText = set ? `${[...set].sort().join('·')}학기` : ''; });
     return { lines, matched, sameRow };
-  }, [univResult, uniqueElectiveSubjects, dbMandatory, selectedSubjects, univUnits]);
+  }, [univResult, uniqueElectiveSubjects, dbMandatory, selectedSubjects, univUnits, dbSubjects, groupMap]);
 
   // 실시간 조건 검증 엔진 ([규칙] 탭 기반)
   const mandatoryList = useMemo(() => Object.values(dbMandatory).flat(), [dbMandatory]);
@@ -2675,14 +2681,14 @@ function App() {
 
                         <div className="rounded-2xl border-2 border-slate-200 p-4">
                           <div className="font-black text-slate-800 mb-1">📋 우리 학교 과목과 비교</div>
-                          <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">권장 내용에 나오는 과목 중 우리 학교에서 배울 수 있는 과목입니다. <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 학교 지정 과목, <b className="text-rose-700">핵심</b>은 대학이 핵심 과목으로 밝힌 과목입니다.</p>
+                          <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">권장 내용에 나오는 과목 중 우리 학교에서 배울 수 있는 과목과 개설 학기입니다(예: 2-1학기 = 2학년 1학기). <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 학교 지정 과목, <b className="text-rose-700">핵심</b>은 대학이 핵심 과목으로 밝힌 과목입니다.</p>
                           {univResultInfo.matched.length===0?(
                             <p className="text-sm text-slate-500">권장 내용에서 우리 학교 과목명을 찾지 못했습니다. 위 표의 내용을 직접 확인하세요.</p>
                           ):(
                             <div className="flex flex-wrap gap-2">
                               {univResultInfo.matched.map(m=>(
                                 <span key={m.name} className={`px-3 py-1.5 rounded-lg text-sm lg:text-base font-bold border-2 ${m.isSelected?'bg-green-50 border-green-500 text-green-800':'bg-white border-slate-300 text-slate-600'}`}>
-                                  {m.isSelected?'✔ ':''}{m.name}{m.kind==='mandatory'?' (지정)':''}{m.isCore&&<span className="ml-1 text-xs text-white bg-rose-600 rounded px-1.5 py-0.5 align-middle">핵심</span>}
+                                  {m.isSelected?'✔ ':''}{m.name}{(m.semText||m.kind==='mandatory')&&<span className="font-medium"> ({[m.semText,m.kind==='mandatory'?'지정':''].filter(Boolean).join(', ')})</span>}{m.isCore&&<span className="ml-1 text-xs text-white bg-rose-600 rounded px-1.5 py-0.5 align-middle">핵심</span>}
                                 </span>
                               ))}
                             </div>
