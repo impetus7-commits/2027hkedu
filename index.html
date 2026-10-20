@@ -1702,7 +1702,29 @@ function App() {
   ];
   const activeMenu = MENU.find(m => m.tabs.some(t => t.id === activeTab)) || MENU[1];
   const isMobile = () => window.innerWidth < 768;
+  // 보고서 화면: 들어갈 때 맨 위부터 보이게, 나올 때는 보던 위치로
+  const scrollBeforeReport = useRef(0);
+  const tabBeforeReport = useRef('planner');
+  const prevTabRef = useRef(activeTab);
+  const lastScrollRef = useRef(0);
+  useEffect(() => {
+    const onScroll = () => { if (prevTabRef.current !== 'career') lastScrollRef.current = window.scrollY; };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  React.useLayoutEffect(() => {
+    if (activeTab === 'career' && prevTabRef.current !== 'career') {
+      scrollBeforeReport.current = lastScrollRef.current;
+      tabBeforeReport.current = prevTabRef.current;
+      window.scrollTo(0, 0);
+    } else if (activeTab !== 'career' && prevTabRef.current === 'career') {
+      // 화면이 다시 그려지는 동안 몇 번 나눠서 원래 위치로 (긴 화면은 높이가 늦게 잡힘)
+      [0, 60, 200, 450].forEach(ms => setTimeout(() => { if (Math.abs(window.scrollY - scrollBeforeReport.current) > 4) window.scrollTo(0, scrollBeforeReport.current); }, ms));
+    }
+    prevTabRef.current = activeTab;
+  }, [activeTab]);
   const goTab = (tabId) => {
+    if (tabId === 'career') { setActiveTab('career'); return; }   // 보고서는 전체 화면이라 따로 처리(아래 효과)
     setActiveTab(tabId);
     if (isMobile()) setTimeout(() => rightPaneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
@@ -1943,8 +1965,8 @@ function App() {
   if(activeTab==='career'){
     const RS = {
       page:       { fontFamily:'sans-serif', background:'#f3f4f6', minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center' },
-      wrapper:    { width:'100%', maxWidth:'210mm', background:'white', padding:'32px', margin:'32px auto', boxShadow:'0 10px 40px rgba(0,0,0,0.15)' },
-      toolbar:    { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'24px', paddingBottom:'16px', borderBottom:'2px solid #e5e7eb' },
+      wrapper:    { width:'100%', maxWidth:'210mm', background:'white', padding: window.innerWidth < 640 ? '16px' : '32px', margin: window.innerWidth < 640 ? '0 auto' : '32px auto', boxShadow:'0 10px 40px rgba(0,0,0,0.15)' },
+      toolbar:    { display:'flex', flexWrap:'wrap', gap:'8px', justifyContent:'space-between', alignItems:'center', marginBottom:'24px', paddingBottom:'16px', borderBottom:'2px solid #e5e7eb' },
       title:      { textAlign:'center', marginBottom:'24px' },
       h1:         { fontSize:'1.75rem', fontWeight:900, borderBottom:'4px double #9ca3af', display:'inline-block', paddingBottom:'8px', paddingLeft:'32px', paddingRight:'32px', marginBottom:'16px' },
       secTitle:   { fontSize:'1.05rem', fontWeight:900, marginBottom:'12px', paddingLeft:'12px', borderLeft:'4px solid', display:'flex', alignItems:'center', gap:'8px' },
@@ -1969,8 +1991,8 @@ function App() {
           <div className="no-print" style={RS.toolbar}>
             <h2 style={{fontSize:'1.25rem',fontWeight:900,color:'#1f2937'}}>나만의 선택과목 보고서 (인쇄 미리보기)</h2>
             <div style={{display:'flex',gap:'8px'}}>
-              <button id="back-btn" onClick={()=>setActiveTab('planner')} style={{padding:'8px 16px',background:'#e5e7eb',color:'#374151',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer'}}>← 돌아가기</button>
-              <button id="print-btn" onClick={()=>window.print()} style={{padding:'8px 24px',background:'#00703C',color:'white',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>🖨️ 출력 / PDF 저장</button>
+              <button id="back-btn" onClick={()=>setActiveTab(tabBeforeReport.current||'planner')} style={{padding:'8px 16px',background:'#e5e7eb',color:'#374151',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>← 돌아가기</button>
+              <button id="print-btn" onClick={()=>window.print()} style={{padding:'8px 20px',background:'#00703C',color:'white',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px',whiteSpace:'nowrap'}}>🖨️ 출력 / PDF 저장</button>
             </div>
           </div>
 
