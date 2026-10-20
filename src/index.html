@@ -225,7 +225,7 @@ const DATA_CACHE_KEY = `hwikyung_data_${ACTIVE_YEAR}`;   // 시트 자료 임시
 const TAB_NAMES = {
   info: '기본정보', groups: '선택군', rules: '규칙', subjects: '과목데이터',
   fields: '계열데이터', majors: '학과데이터', univ: '대학별 이수권장과목',
-  conditions: '조건', sharedCampus: '공유캠퍼스', intro: '과목소개', jobs: '직업데이터', glossary: '용어풀이',
+  conditions: '조건', sharedCampus: '공유캠퍼스', intro: '과목소개', jobs: '직업데이터', aiJobs: 'AI직업데이터', glossary: '용어풀이',
 };
 
 // ── 시트에 [기본정보] 탭이 없을 때 쓰는 기본값 ──
@@ -1039,7 +1039,7 @@ function App() {
   // 시트 원본(JSON 글자)을 화면에 쓰는 데이터로 바꾸기
   const applySheetText = (text) => {
       let parsedSubjects=[], parsedFields=[], parsedMajors=[], parsedConditions=[], parsedUnivRecs=[], parsedTimetable=[], dataArrays=[];
-      let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[], parsedIntro=[], parsedJobs=[], parsedGlossary=[];
+      let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[], parsedIntro=[], parsedJobs=[], parsedAiJobs=[], parsedGlossary=[];
       const issues=[], notes=[];
       
       try {
@@ -1081,6 +1081,7 @@ function App() {
             if (exact === 'conditions') { parsedConditions = rows; return; }
             if (exact === 'intro') { parsedIntro = rows; return; }
             if (exact === 'jobs') { parsedJobs = rows; return; }
+            if (exact === 'aiJobs') { parsedAiJobs = rows; return; }
             if (exact === 'glossary') { parsedGlossary = rows; return; }
 
             // 2) 이름이 다르면 탭 이름·제목 줄로 추측
@@ -1364,16 +1365,24 @@ function App() {
 
       if(!loadedInfo.tracks.includes('과학중점')&&loadedRules.some(r=>r.track==='과학중점')) issues.push(`[규칙] 이 입학년도는 [기본정보] 운영과정에 과학중점이 없는데, 과학중점 규칙이 남아 있습니다 (적용되지 않음).`);
       // 직업데이터: 직업 | 관련 과목 | 하는 일 | 과목별 추천 이유("과목명: 이유" 한 줄씩)
-      if (parsedJobs.length > 1) {
-        const jh = parsedJobs[0];
+      // AI직업데이터: 같은 형식 + 계열·관련 학과 열 (AI가 만든 자료 → 화면에 'AI추천' 주의 표시)
+      //   선생님이 검토한 직업은 [직업데이터] 탭으로 옮기면 AI 표시가 사라짐 (같은 이름이면 직업데이터가 우선)
+      const parseJobRows = (rows, ai) => {
+        if (rows.length < 2) return [];
+        const jh = rows[0];
         const ji = { job: headerIndex(jh, '직업'), subs: headerIndex(jh, '휘경여고개설필요(관련)과목', '관련과목', '과목'),
-                     does: headerIndex(jh, '하는일', '직업소개'), why: headerIndex(jh, '과목별추천이유', '추천이유') };
-        setDbJobs(parsedJobs.slice(1).map(r => {
+                     does: headerIndex(jh, '하는일', '직업소개'), why: headerIndex(jh, '과목별추천이유', '추천이유'),
+                     field: headerIndex(jh, '계열', '분야'), majors: headerIndex(jh, '관련학과', '학과') };
+        return rows.slice(1).map(r => {
           const reasons = {};
           cell(r, ji.why).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) reasons[normLoose(m[1])] = m[2].trim(); });
-          return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons, whyRaw: cell(r, ji.why), hasWhyColumn: ji.why !== -1 };
-        }).filter(j => j.job));
-      } else setDbJobs([]);
+          return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons, whyRaw: cell(r, ji.why), hasWhyColumn: ji.why !== -1,
+                   ai, field: cell(r, ji.field), majors: cell(r, ji.majors) };
+        }).filter(j => j.job);
+      };
+      const sheetJobs = parseJobRows(parsedJobs, false);
+      const sheetJobNames = new Set(sheetJobs.map(j => normLoose(j.job)));
+      setDbJobs([...sheetJobs, ...parseJobRows(parsedAiJobs, true).filter(j => !sheetJobNames.has(normLoose(j.job)))]);
       // 용어풀이: 용어 | 설명 (기본 용어에 더하거나 덮어씀)
       GLOSSARY = { ...DEFAULT_GLOSSARY };
       parsedGlossary.slice(1).forEach(r => { if (cell(r, 0) && cell(r, 1)) GLOSSARY[cell(r, 0)] = cell(r, 1); });
@@ -1818,7 +1827,7 @@ function App() {
   // ── (점검 화면) 시트에 추천 이유가 없는 과목 → 붙여 넣을 문장 ──
   const jobReasonGaps = useMemo(() => {
     if (!CHECK_MODE) return [];
-    return dbJobs.map(j => {
+    return dbJobs.filter(j => !j.ai).map(j => {
       const missing = matchSchoolSubjects(j.subjectsText).map(m => ({ name: m.name, ...reasonFor(j, m) })).filter(x => !x.reasonFromSheet);
       if (!missing.length && j.does) return null;
       const newLines = missing.map(x => `${x.name}: ${x.reason}`);
@@ -2518,7 +2527,7 @@ function App() {
                   {[
                     {kind:'subject', title:'📚 과목', items:searchResults.subjects, label:x=>x.name, sub:x=>`${x.type||''}${groupMap[x.group]?` · ${groupMap[x.group].semester}학기`:''}`},
                     {kind:'dept', title:'🗺️ 학과', items:searchResults.depts, label:x=>x.name, sub:x=>x.field},
-                    {kind:'job', title:'💼 직업', items:searchResults.jobs, label:x=>x.job, sub:()=>'관련 과목 보기'},
+                    {kind:'job', title:'💼 직업', items:searchResults.jobs, label:x=>x.job, sub:x=>x.ai?'🤖 AI추천 · 상담 필요':'관련 과목 보기'},
                     {kind:'univ', title:'🏛️ 대학 권장 과목', items:searchResults.univs, label:x=>`${x.univ} ${x.unit}`, sub:x=>x.college},
                   ].filter(g=>g.items.length).map(g=>(
                     <div key={g.kind} className="mb-1">
@@ -3144,23 +3153,59 @@ function App() {
                 ):(<>
                   <input value={jobQuery} onChange={e=>setJobQuery(e.target.value)} placeholder="직업 이름으로 찾기 (예: 간호, 교사, 개발)" aria-label="직업 찾기"
                     className="w-full mb-3 px-4 py-3 rounded-xl border-2 border-blue-300 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"/>
-                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1 mb-4">
-                    {dbJobs.filter(j=>!jobQuery||normLoose(j.job).includes(normLoose(jobQuery))).map(j=>(
-                      <button key={j.job} onClick={()=>setSelectedJob(j.job)}
-                        className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${selectedJob===j.job?'bg-blue-700 text-white border-blue-700':'bg-white text-slate-700 border-slate-300 hover:border-blue-400'}`}>{j.job}</button>
-                    ))}
-                  </div>
+                  {(()=>{
+                    const q=normLoose(jobQuery);
+                    const hit=j=>!q||normLoose(j.job).includes(q)||normLoose(j.majors).includes(q);
+                    const base=dbJobs.filter(j=>!j.ai&&hit(j)), ai=dbJobs.filter(j=>j.ai&&hit(j));
+                    const aiTotal=dbJobs.filter(j=>j.ai).length;
+                    const aiFields=[...new Set(ai.map(j=>j.field||'기타'))];
+                    return (<>
+                      {base.length>0&&<div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1 mb-3">
+                        {base.map(j=>(
+                          <button key={j.job} onClick={()=>setSelectedJob(j.job)}
+                            className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${selectedJob===j.job?'bg-blue-700 text-white border-blue-700':'bg-white text-slate-700 border-slate-300 hover:border-blue-400'}`}>{j.job}</button>
+                        ))}
+                      </div>}
+                      {aiTotal>0&&(
+                        <details open={!!q||undefined} className="mb-4 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/60 p-3">
+                          <summary className="cursor-pointer font-black text-amber-900 break-keep">🤖 더 많은 직업 보기 — AI추천 {q?`${ai.length}개 찾음`:`${aiTotal}개`} <span className="text-red-700">(주의!! 상담 및 고민 필요)</span></summary>
+                          <p className="text-xs lg:text-sm text-amber-900 mt-1 mb-2 break-keep">아래 직업의 설명과 추천 과목은 AI가 만든 참고 자료입니다. 선생님이 검토한 위의 직업 목록과 달리 틀린 내용이 있을 수 있어요.</p>
+                          <div className="max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                            {aiFields.map(f=>(
+                              <div key={f} className="mb-2">
+                                <div className="text-xs font-black text-amber-800 mb-1">{f}</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.filter(j=>(j.field||'기타')===f).map(j=>(
+                                    <button key={j.job} onClick={()=>setSelectedJob(j.job)}
+                                      className={`px-2.5 py-1 rounded-full text-sm font-bold border ${selectedJob===j.job?'bg-amber-600 text-white border-amber-600':'bg-white text-slate-700 border-amber-300 hover:border-amber-500'}`}>{j.job}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                      {q&&base.length===0&&ai.length===0&&<p className="mb-4 text-sm font-bold text-slate-500 break-keep">'{jobQuery}' 직업을 찾지 못했습니다. 다른 낱말(예: '디자이너' → '디자인')로 찾거나, [학과 가이드]에서 관련 학과를 살펴보세요.</p>}
+                    </>);
+                  })()}
                   {!jobInfo?(
-                    <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">위에서 직업을 하나 골라 보세요. ({dbJobs.length}개 직업)</div>
+                    <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">위에서 직업을 하나 골라 보세요. ({dbJobs.filter(j=>!j.ai).length}개 직업{dbJobs.some(j=>j.ai)?` + AI추천 ${dbJobs.filter(j=>j.ai).length}개`:''})</div>
                   ):(
                     <div className="flex flex-col gap-4">
-                      <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
-                        <div className="text-xl lg:text-2xl font-black text-blue-950 mb-1">{jobInfo.job}</div>
+                      {jobInfo.ai&&(
+                        <div role="note" className="rounded-2xl border-2 border-red-400 bg-red-50 p-4 break-keep">
+                          <div className="text-lg lg:text-xl font-black text-red-700">🤖 AI추천 (주의!! 상담 및 고민 필요)</div>
+                          <p className="text-sm lg:text-base text-red-900 mt-1">이 직업의 설명과 추천 과목은 <b>AI가 만든 참고 자료</b>입니다. 그대로 따르지 말고, <b>담임·진로 선생님과 꼭 상담</b>하고 스스로 충분히 고민한 뒤 과목을 정하세요.</p>
+                        </div>
+                      )}
+                      <div className={`rounded-2xl border-2 p-4 ${jobInfo.ai?'border-amber-300 bg-amber-50':'border-blue-200 bg-blue-50'}`}>
+                        <div className="text-xl lg:text-2xl font-black text-blue-950 mb-1">{jobInfo.job}{jobInfo.ai&&<span className="ml-2 align-middle text-xs lg:text-sm font-black px-2 py-0.5 rounded-md bg-red-600 text-white">AI추천</span>}</div>
                         {jobInfo.does&&<div className="text-base font-bold text-slate-800 break-keep mb-1">💼 {jobInfo.does}</div>}
                         <div className="text-sm text-slate-600 break-keep"><b>관련 과목:</b> {jobInfo.subjectsText}</div>
+                        {jobInfo.majors&&<div className="text-sm text-slate-600 break-keep"><b>관련 학과:</b> {jobInfo.majors}</div>}
                       </div>
                       <div className="rounded-2xl border-2 border-slate-200 p-4">
-                        <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목</div>
+                        <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목{jobInfo.ai&&<span className="ml-2 text-sm font-black text-red-700">— AI추천 (주의!! 상담 및 고민 필요)</span>}</div>
                         <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep"><b className="text-blue-800">왜?</b>는 이 직업의 어떤 면 때문에 필요한지, <b className="text-green-700">무엇을?</b>은 그 과목에서 배우는 내용입니다. 괄호 안은 개설 학기(2-1학기 = 2학년 1학기), <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
                         {jobInfo.matched.length?(
                           <div className="flex flex-col gap-2">
@@ -3170,6 +3215,7 @@ function App() {
                                 <div key={m.name} className="flex flex-col lg:flex-row lg:items-start gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
                                   <div className="shrink-0 lg:w-[38%]">{renderSubjectChips([m])}</div>
                                     <div className="flex-1 text-sm lg:text-base break-keep leading-relaxed">
+                                      {jobInfo.ai&&<div className="mb-0.5"><span className="text-[11px] lg:text-xs font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300">🤖 AI추천(주의!! 상담 및 고민 필요)</span></div>}
                                       <div><span className="font-black text-blue-800">왜?</span> <span className="text-slate-800">{aspect}</span></div>
                                       {learn&&<div><span className="font-black text-green-700">무엇을?</span> <span className="text-slate-700">{learn}</span></div>}
                                     </div>
