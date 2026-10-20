@@ -13,12 +13,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   
-  <!-- React & Babel CDN -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- React & Babel CDN (버전 고정: 외부 업데이트로 화면이 깨지지 않도록) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
   <style>
     body {
@@ -138,26 +138,90 @@ const getValidYouTubeUrl = (url) => {
   return null;
 };
 
-// ── 정적 구조 데이터 ──
-const GROUP_DISPLAY_NAMES = {
-  '2A': 'A', '2B': 'B', '2C': 'C', '2D': 'C', '2E': 'J', '2F': 'K',
-  '3A': 'D', '3B': 'E', '3C': 'F', '3D': 'G', '3E': 'H', '3F': 'I'
+// ══════════════════════════════════════════════════════════════
+// ── 학교 설정: 새 입학년도 시트를 만들면 여기에 한 줄만 추가 ──
+//    주소 뒤에 ?year=2026 처럼 붙이면 해당 입학년도 시트를 불러옵니다.
+//    주소 뒤에 ?check=1 을 붙이면 시트 점검 화면이 나타납니다.
+// ══════════════════════════════════════════════════════════════
+const SHEET_URLS = {
+  '2027': 'https://script.google.com/macros/s/AKfycbzLcV7dPOSvKlSohDy1f0CHTX-Fx5D-lkT0_RPoCQSC_PU_667e5NlvOinYQKxV_oDqgw/exec',
+  '2026': 'https://script.google.com/macros/s/AKfycbzGpEsw3ZFUHe3fBvm00sY0XDc_bWUDehNQPCl1jq5xNXUX39GAJtqxkW5LO6wDxbeOkw/exec',
+};
+const DEFAULT_YEAR = '2027';
+
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const ACTIVE_YEAR = SHEET_URLS[URL_PARAMS.get('year')] ? URL_PARAMS.get('year') : DEFAULT_YEAR;
+const CHECK_MODE = URL_PARAMS.get('check') === '1';
+const STORAGE_KEY = `hwikyung_courses_${ACTIVE_YEAR}`;
+
+// 시트 탭 이름 (이 이름의 탭을 우선 사용하고, 없으면 제목 줄로 추측)
+const TAB_NAMES = {
+  info: '기본정보', groups: '선택군', rules: '규칙', subjects: '과목데이터',
+  fields: '계열데이터', majors: '학과데이터', univ: '대학별 이수권장과목',
+  conditions: '조건', sharedCampus: '공유캠퍼스',
 };
 
-const GROUPS = [
-  { id: '2A', name: 'A (2-1학기, 12학점, 택3)', semester: '2-1', maxPick: 3, totalCredits: 12 },
-  { id: '2B', name: 'B (2-2학기, 12학점, 택3)', semester: '2-2', maxPick: 3, totalCredits: 12 },
-  { id: '2C', name: 'C (2-1학기, 3학점, 택1)', semester: '2-1', maxPick: 1, totalCredits: 3 },
-  { id: '2E', name: 'J (2-1학기, 공유캠퍼스, 희망자 택1)', semester: '2-1', maxPick: 1, totalCredits: 2, isOptional: true },
-  { id: '2D', name: 'C (2-2학기, 3학점, 택1)', semester: '2-2', maxPick: 1, totalCredits: 3 },
-  { id: '2F', name: 'K (2-2학기, 공유캠퍼스, 희망자 택1)', semester: '2-2', maxPick: 1, totalCredits: 2, isOptional: true },
-  { id: '3A', name: 'D (3-1학기, 9학점, 택3)', semester: '3-1', maxPick: 3, totalCredits: 9 },
-  { id: '3B', name: 'E (3-1학기, 3학점, 택1)', semester: '3-1', maxPick: 1, totalCredits: 3 },
-  { id: '3C', name: 'F (3-1학기, 4학점, 택1)', semester: '3-1', maxPick: 1, totalCredits: 4 },
-  { id: '3D', name: 'G (3-2학기, 21학점, 택7)', semester: '3-2', maxPick: 7, totalCredits: 21 },
-  { id: '3E', name: 'H (3-2학기, 3학점, 택1)', semester: '3-2', maxPick: 1, totalCredits: 3 },
-  { id: '3F', name: 'I (3-2학기, 4학점, 택1)', semester: '3-2', maxPick: 1, totalCredits: 4 },
+// ── 시트에 [기본정보] 탭이 없을 때 쓰는 기본값 ──
+const DEFAULT_INFO = {
+  schoolName: '휘경여자고등학교',
+  schoolShort: '휘경여고',
+  admissionYear: '2026',
+  csatYear: '2029',
+  semesterCredits: 29,
+  source: '2026학년도 2022 개정 교육과정 선택 과목 안내서(서울특별시교육청)',
+};
+
+// ── 시트에 [선택군] 탭이 없을 때 쓰는 기본값 ──
+const DEFAULT_GROUPS = [
+  { id: '2A', label: 'A', semester: '2-1', maxPick: 3, totalCredits: 12 },
+  { id: '2B', label: 'B', semester: '2-2', maxPick: 3, totalCredits: 12 },
+  { id: '2C', label: 'C', semester: '2-1', maxPick: 1, totalCredits: 3 },
+  { id: '2E', label: 'J', semester: '2-1', maxPick: 1, totalCredits: 3, isOptional: true, isSharedCampus: true, notice: '공유캠퍼스(금요일 또는 주말 운영)는 희망자에 한해 모집시기(3월초)에 해당 학교에 시험이나 면접을 본 후 합격자만 수강이 가능합니다.' },
+  { id: '2D', label: 'C', semester: '2-2', maxPick: 1, totalCredits: 3 },
+  { id: '2F', label: 'K', semester: '2-2', maxPick: 1, totalCredits: 3, isOptional: true, isSharedCampus: true, notice: '공유캠퍼스(금요일 또는 주말 운영)는 희망자에 한해 모집시기(3월초)에 해당 학교에 시험이나 면접을 본 후 합격자만 수강이 가능합니다.' },
+  { id: '3A', label: 'D', semester: '3-1', maxPick: 3, totalCredits: 9 },
+  { id: '3B', label: 'E', semester: '3-1', maxPick: 1, totalCredits: 3 },
+  { id: '3C', label: 'F', semester: '3-1', maxPick: 1, totalCredits: 4 },
+  { id: '3D', label: 'G', semester: '3-2', maxPick: 7, totalCredits: 21 },
+  { id: '3E', label: 'H', semester: '3-2', maxPick: 1, totalCredits: 3 },
+  { id: '3F', label: 'I', semester: '3-2', maxPick: 1, totalCredits: 4 },
 ];
+
+// ── 시트에 [규칙] 탭이 없을 때 쓰는 기본값 (2026 입학생 기준) ──
+//   규칙유형: 선택개수 / 교과기준 / 교과별기준 / 지정과목 / 중복금지 / 권장 / 안내
+const R = (track, type, scope, opts = {}) => ({ track, type, scope, categories: [], subjects: [], minCount: null, maxCount: null, minCredits: null, maxCredits: null, combine: '모두', includeMandatory: false, text: '', ...opts });
+const KME = ['국어', '수학', '영어'];
+const DEFAULT_RULES = [
+  R('전체', '교과기준', '전체', { categories: KME, maxCredits: 21, text: '국어, 수학, 영어 교과군 총 이수 학점 81학점 이하 (2~3학년 선택과목에서 국·수·영 합산 21학점 이하)' }),
+  R('전체', '안내', '2E,2F', { text: '희망자에 한해 2학년에서 공유캠퍼스 과목을 추가 신청할 수 있음' }),
+  R('일반', '선택개수', '2A', { text: '2A 총 3과목 선택' }),
+  R('일반', '교과기준', '2A', { categories: KME, maxCount: 1, text: '2A 국어, 수학, 영어 교과군 과목은 합쳐서 최대 1과목까지만 선택 가능' }),
+  R('일반', '선택개수', '2B', { text: '2B 총 3과목 선택' }),
+  R('일반', '교과기준', '2B', { categories: KME, maxCount: 1, text: '2B 국어, 수학, 영어 교과군 과목은 합쳐서 최대 1과목까지만 선택 가능' }),
+  R('전체', '중복금지', '2C,2D', { categories: ['기술·가정/정보', '제2외국어/한문', '교양'], text: '2학년 기술·가정/정보/제2외국어/한문/교양 교과군 과목은 1, 2학기 동일 과목 중복 선택 불가' }),
+  R('일반', '선택개수', '3A', { text: '3A 총 3과목 선택' }),
+  R('일반', '교과기준', '3A', { categories: KME, maxCount: 1, text: '3A 국어, 수학, 영어 교과군 과목은 합쳐서 최대 1과목까지만 선택 가능' }),
+  R('전체', '교과별기준', '3D', { categories: KME, minCount: 1, maxCount: 1, text: '3D 7과목 중 국어, 수학, 영어 교과군 과목 각각 1과목씩 필수 포함' }),
+  R('전체', '중복금지', '3A,3D', { subjects: ['운동과 건강'], text: "3학년 체육 교과군 '운동과 건강' 과목 1, 2학기 동일 과목 중복 선택 불가" }),
+  R('과학중점', '교과기준', '전체', { categories: ['수학', '과학', '정보'], minCredits: 79, includeMandatory: true, text: '수학, 과학, 정보 교과군 총 이수 학점 79학점 이상 필수' }),
+  R('과학중점', '교과기준', '전체', { categories: ['수학'], minCount: 1, text: '전체 선택 과목 중 수학 교과군 최소 1과목 이상 필수 선택' }),
+  R('과학중점', '교과기준', '전체', { categories: ['정보'], minCredits: 4, minCount: 2, combine: '하나', text: '전체 선택 과목 중 정보 교과군 총 4학점 이상 또는 최소 2과목 이상 필수 선택' }),
+  R('과학중점', '지정과목', '2A', { subjects: ['물리학', '화학', '생명과학', '지구과학', '인공지능 수학'], text: '2A [물리학, 화학, 생명과학, 지구과학, 인공지능 수학] 중 3과목 선택' }),
+  R('과학중점', '지정과목', '2B', { subjects: ['기하', '역학과 에너지', '물질과 에너지', '세포와 물질대사', '행성우주과학'], text: '2B [기하, 역학과 에너지, 물질과 에너지, 세포와 물질대사, 행성우주과학] 중 3과목 선택' }),
+  R('과학중점', '권장', '2C,2D', { categories: ['정보'], minCount: 1, text: '2C, 2D 정보 과목 수강 권장' }),
+  R('과학중점', '지정과목', '3A', { subjects: ['미적분Ⅱ', '전자기와 양자', '화학 반응의 세계', '생물의 유전', '지구시스템과학'], text: '3A [미적분Ⅱ, 전자기와 양자, 화학 반응의 세계, 생물의 유전, 지구시스템과학] 중 3과목 선택' }),
+  R('과학중점', '지정과목', '3C', { subjects: ['인공지능 기초'], text: '3C [인공지능 기초] 단일 필수 선택' }),
+  R('과학중점', '교과기준', '3D', { categories: ['과학'], minCount: 3, text: '3D 7과목 중 과학 교과군 과목 반드시 3과목 필수 포함' }),
+];
+
+const RULE_TYPES = ['선택개수', '교과기준', '교과별기준', '지정과목', '중복금지', '권장', '안내'];
+const INFO_SUBJECT_RE = /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/;
+
+// 선택군 표시 이름 예: "A (2-1학기, 12학점, 택3)"
+const buildGroupName = (g) => g.isSharedCampus
+  ? `${g.label} (${g.semester}학기, 공유캠퍼스, 희망자 택${g.maxPick})`
+  : `${g.label} (${g.semester}학기, ${g.totalCredits}학점, 택${g.maxPick}${g.isOptional ? ', 희망자' : ''})`;
+const withGroupNames = (groups) => groups.map(g => ({ ...g, name: buildGroupName(g) }));
 
 const DEFAULT_MANDATORY_SUBJECTS = {
   '1-1': [{ name: '공통국어1', credits: 4, type: '국어' }, { name: '공통수학1', credits: 4, type: '수학' }, { name: '공통영어1', credits: 4, type: '영어' }, { name: '통합사회1', credits: 4, type: '사회 (역사/도덕 포함)' }, { name: '통합과학1', credits: 4, type: '과학' }, { name: '과학탐구실험1', credits: 1, type: '과학' }, { name: '한국사1', credits: 3, type: '사회 (역사/도덕 포함)' }, { name: '체육1', credits: 2, type: '체육' }, { name: '음악', credits: 3, type: '예술' }],
@@ -229,10 +293,253 @@ const getSemesterFromText = (text) => {
   return null;
 };
 
-const getGroupFromText = (text) => {
+// 편성 문구(예: "2학년 2A군(2학년 1학기) 선택")에서 선택군 ID 찾기
+const findGroupInText = (text, groups) => {
   if (!text||typeof text!=='string') return null;
-  const match = text.match(/2[A-F]|3[A-F]/);
-  return match ? match[0] : null;
+  const t = text.replace(/\s+/g,'').toUpperCase();
+  const ids = groups.map(g=>g.id).sort((a,b)=>b.length-a.length);
+  return ids.find(id => t.includes(id.toUpperCase())) || null;
+};
+
+// ══════════════════════════════════════════════════════════════
+// ── 규칙 엔진: [규칙] 탭의 각 줄을 계산합니다 ──
+// ══════════════════════════════════════════════════════════════
+const splitList = (v) => String(v||'').split(/[,，、\n]+/).map(x=>x.trim()).filter(Boolean);
+const toNumOrNull = (v) => { const n = parseFloat(String(v??'').replace(/[^0-9.]/g,'')); return isNaN(n) ? null : n; };
+const isYes = (v) => /^(o|O|○|●|예|y|Y|yes|true|1|v|V|✔|✓)$/.test(String(v??'').trim());
+const sumCredits = (list) => list.reduce((sum, s) => sum + (s.credits||0), 0);
+const inSubjectList = (name, list) => list.some(x => normalizeForMatch(x) === normalizeForMatch(name));
+
+const normalizeTrack = (v) => {
+  const t = String(v||'').replace(/\s+/g,'');
+  if (t.includes('과학')) return '과학중점';
+  if (t.includes('일반')) return '일반';
+  return '전체';
+};
+const ruleAppliesToTrack = (rule, isScienceTrack) => rule.track === '전체' || rule.track === (isScienceTrack ? '과학중점' : '일반');
+
+// "2A, 2B" → 해당 군 / "2학년"·"3학년" → 해당 학년의 군 / "전체"·빈칸 → 희망자 군을 뺀 모든 군
+const resolveScope = (scope, groups) => {
+  const s = String(scope||'').replace(/\s+/g,'').toUpperCase();
+  const regular = groups.filter(g => !g.isOptional);
+  const named = groups.filter(g => s.includes(g.id.toUpperCase()));
+  if (named.length > 0) return { ids: named.map(g=>g.id), explicit: true };
+  if (/^2학년/.test(s)) return { ids: regular.filter(g=>g.semester.startsWith('2-')).map(g=>g.id), explicit: false };
+  if (/^3학년/.test(s)) return { ids: regular.filter(g=>g.semester.startsWith('3-')).map(g=>g.id), explicit: false };
+  return { ids: regular.map(g=>g.id), explicit: false };
+};
+
+const prepareRules = (rules, groups) => rules.map((r, i) => {
+  const scope = resolveScope(r.scope, groups);
+  return { ...r, key: `r${i}`, groupIds: scope.ids, scopeExplicit: scope.explicit };
+});
+
+// 교과 이름으로 과목 맞추기 ('정보'는 기술·가정/정보 중 정보 계열 과목만)
+const matchesCategory = (subj, cat) => {
+  const t = normalizeType(subj.type, subj.name);
+  if (String(cat).replace(/\s+/g,'') === '정보') return t === '기술·가정/정보' && INFO_SUBJECT_RE.test(subj.name);
+  return normalizeType(cat, '') === t;
+};
+const matchesRule = (subj, rule) => {
+  if (rule.categories.length === 0 && rule.subjects.length === 0) return true;
+  return rule.categories.some(c => matchesCategory(subj, c)) || inSubjectList(subj.name, rule.subjects);
+};
+
+const ruleTally = (rule, list, mandatoryList) => {
+  const matched = list.filter(s => matchesRule(s, rule));
+  const mand = rule.includeMandatory ? mandatoryList.filter(m => matchesRule(m, rule)) : [];
+  const count = matched.length + mand.length;
+  const credits = sumCredits(matched) + sumCredits(mand);
+  const parts = [];
+  if (rule.minCredits != null || rule.maxCredits != null) parts.push(`${credits}학점`);
+  if (rule.minCount != null || rule.maxCount != null || parts.length === 0) parts.push(`${count}과목`);
+  return { count, credits, text: parts.join('/') };
+};
+
+// 현재 선택 상태에서 규칙 한 줄의 결과: pass(충족) / fail(위반) / info(진행 중·안내)
+const evaluateRule = (rule, ctx) => {
+  const { groupMap, selected, mandatoryList } = ctx;
+  const scopeGroups = rule.groupIds.map(id => groupMap[id]).filter(Boolean);
+  const inScope = selected.filter(s => rule.groupIds.includes(s.group));
+  const isComplete = scopeGroups.every(g => selected.filter(s => s.group === g.id).length >= g.maxPick);
+  const progress = scopeGroups.map(g => `${g.label}(${selected.filter(s => s.group === g.id).length}/${g.maxPick})`).join(', ');
+  const res = (status, detail) => ({ status, detail });
+
+  switch (rule.type) {
+    case '선택개수':
+      return isComplete ? res('pass', '(선택 완료)') : res('info', `(선택 진행 중... ${progress})`);
+    case '지정과목': {
+      const bad = inScope.filter(s => !inSubjectList(s.name, rule.subjects));
+      if (bad.length > 0) return res('fail', `(요건 위반 - 지정되지 않은 과목: ${bad.map(s=>s.name).join(', ')})`);
+      return isComplete ? res('pass', '(조건 충족)') : res('info', `(선택 진행 중... ${progress})`);
+    }
+    case '중복금지': {
+      const names = inScope.filter(s => matchesRule(s, rule)).map(s => normalizeForMatch(s.name));
+      if (names.some((n, i) => names.indexOf(n) !== i)) return res('fail', '(중복 선택됨 - 요건 위반)');
+      return isComplete ? res('pass', '(중복 없음)') : res('info', `(선택 진행 중... ${progress})`);
+    }
+    case '교과별기준': {
+      const counts = rule.categories.map(c => [c, inScope.filter(s => matchesCategory(s, c)).length]);
+      const txt = counts.map(([c, n]) => `${c} ${n}`).join(', ');
+      if (rule.maxCount != null && counts.some(([, n]) => n > rule.maxCount)) return res('fail', `(요건 위반 - ${txt})`);
+      const ok = rule.minCount == null || counts.every(([, n]) => n >= rule.minCount);
+      if (!isComplete) return res('info', `(선택 진행 중... ${txt})`);
+      return ok ? res('pass', `(조건 충족 - ${txt})`) : res('fail', `(요건 미달 - ${txt})`);
+    }
+    case '교과기준':
+    case '권장': {
+      const t = ruleTally(rule, inScope, mandatoryList);
+      const over = (rule.maxCount != null && t.count > rule.maxCount) || (rule.maxCredits != null && t.credits > rule.maxCredits);
+      if (over) return res(rule.type === '권장' ? 'info' : 'fail', `(요건 위반 - 현재 ${t.text})`);
+      const mins = [];
+      if (rule.minCount != null) mins.push(t.count >= rule.minCount);
+      if (rule.minCredits != null) mins.push(t.credits >= rule.minCredits);
+      if (mins.length === 0) return isComplete ? res('pass', `(조건 충족: ${t.text})`) : res('info', `(선택 진행 중... 현재 ${t.text})`);
+      const met = rule.combine === '하나' ? mins.some(Boolean) : mins.every(Boolean);
+      if (met) return res('pass', `(충족: ${t.text})`);
+      if (!isComplete) return res('info', `(선택 진행 중... 현재 ${t.text})`);
+      return rule.type === '권장' ? res('pass', `(권장 사항 - 필수는 아님, 현재 ${t.text})`) : res('fail', `(미달: 현재 ${t.text})`);
+    }
+    default:
+      return res('info', '');
+  }
+};
+
+// 과목을 담을 때 규칙을 어기거나, 담으면 나중에 규칙을 채울 수 없게 되는지 확인
+const getAddViolation = (rule, subject, nextSelected, ctx) => {
+  if (!rule.groupIds.includes(subject.group)) return null;
+  const { groupMap, mandatoryList } = ctx;
+  const scopeGroups = rule.groupIds.map(id => groupMap[id]).filter(Boolean);
+  const inScope = nextSelected.filter(s => rule.groupIds.includes(s.group));
+  const remainingPicks = scopeGroups.reduce((sum, g) => sum + g.maxPick, 0) - inScope.length;
+  const remainingCredits = scopeGroups.reduce((sum, g) => sum + (g.totalCredits||0), 0) - sumCredits(inScope);
+
+  switch (rule.type) {
+    case '지정과목':
+      return inSubjectList(subject.name, rule.subjects) ? null : '이 군에서는 지정된 과목 중에서만 선택할 수 있습니다.';
+    case '중복금지': {
+      if (!matchesRule(subject, rule)) return null;
+      const same = inScope.filter(s => matchesRule(s, rule) && normalizeForMatch(s.name) === normalizeForMatch(subject.name));
+      return same.length > 1 ? `'${subject.name}' 과목은 1, 2학기에 중복해서 선택할 수 없습니다.` : null;
+    }
+    case '교과별기준': {
+      const counts = rule.categories.map(c => [c, inScope.filter(s => matchesCategory(s, c)).length]);
+      const over = counts.find(([, n]) => rule.maxCount != null && n > rule.maxCount);
+      if (over) return `${over[0]} 교과군 과목은 최대 ${rule.maxCount}과목까지만 선택할 수 있습니다.`;
+      if (rule.minCount != null) {
+        const deficit = counts.reduce((sum, [, n]) => sum + Math.max(0, rule.minCount - n), 0);
+        if (deficit > remainingPicks) return '이 과목을 담으면 남은 자리로는 위 조건을 채울 수 없습니다.';
+      }
+      return null;
+    }
+    case '교과기준': {
+      const t = ruleTally(rule, inScope, mandatoryList);
+      if (rule.maxCount != null && t.count > rule.maxCount) return `해당 과목은 합쳐서 최대 ${rule.maxCount}과목까지만 선택할 수 있습니다.`;
+      if (rule.maxCredits != null && t.credits > rule.maxCredits) return `이 과목을 담으면 ${t.credits}학점이 되어 ${rule.maxCredits}학점을 넘습니다.`;
+      if (rule.combine !== '하나') {
+        if (rule.minCount != null && rule.minCount - t.count > remainingPicks) return '이 과목을 담으면 남은 자리로는 위 조건을 채울 수 없습니다.';
+        if (rule.minCredits != null && t.credits + remainingCredits < rule.minCredits) return `이 과목을 담으면 최대 ${t.credits + remainingCredits}학점까지만 가능해 ${rule.minCredits}학점을 채울 수 없습니다.`;
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+};
+
+// 규칙 안내문 속 군 ID(2A 등)를 학생에게 보이는 이름(A 등)으로 바꾸기
+const replaceGroupIds = (text, groups) => {
+  if (!text || groups.length === 0) return text || '';
+  const ids = groups.map(g => g.id).sort((a, b) => b.length - a.length).map(id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const labelMap = Object.fromEntries(groups.map(g => [g.id, g.label]));
+  return text.replace(new RegExp(`(?<![0-9A-Za-z])(${ids.join('|')})(?![0-9A-Za-z])`, 'g'), m => labelMap[m] || m);
+};
+
+// ── 시트 탭 → 설정값 변환 ──
+const normHeader = (h) => String(h??'').replace(/"/g,'').replace(/\s+/g,'');
+const headerIndex = (headers, ...aliases) => {
+  const hs = headers.map(normHeader);
+  for (const a of aliases) { const i = hs.indexOf(normHeader(a)); if (i !== -1) return i; }
+  for (const a of aliases) { const i = hs.findIndex(h => h.includes(normHeader(a))); if (i !== -1) return i; }
+  return -1;
+};
+const cell = (row, i) => (i !== -1 && row[i] != null) ? String(row[i]).trim() : '';
+
+const parseInfoSheet = (rows) => {
+  const map = {};
+  rows.slice(1).forEach(r => { const k = normHeader(r[0]); if (k) map[k] = String(r[1]??'').trim(); });
+  const pick = (...keys) => { for (const k of keys) if (map[normHeader(k)]) return map[normHeader(k)]; return ''; };
+  return {
+    schoolName: pick('학교명') || DEFAULT_INFO.schoolName,
+    schoolShort: pick('학교약칭', '약칭') || DEFAULT_INFO.schoolShort,
+    admissionYear: (pick('입학년도', '입학연도').match(/\d{4}/)||[])[0] || DEFAULT_INFO.admissionYear,
+    csatYear: (pick('수능년도', '수능연도', '수능').match(/\d{4}/)||[])[0] || DEFAULT_INFO.csatYear,
+    semesterCredits: toNumOrNull(pick('학기별교과학점', '학기당교과학점')) || DEFAULT_INFO.semesterCredits,
+    source: pick('자료출처', '출처') || DEFAULT_INFO.source,
+  };
+};
+
+const parseSemester = (v) => {
+  const s = String(v||'').replace(/\s+/g,'');
+  const m = s.match(/^([1-3])-([12])$/) || s.match(/([1-3])학년([12])학기/);
+  return m ? `${m[1]}-${m[2]}` : null;
+};
+
+const parseGroupsSheet = (rows, issues) => {
+  const h = rows[0];
+  const ix = {
+    id: headerIndex(h, '군ID', '군코드', 'ID'), label: headerIndex(h, '표시이름', '표시'),
+    sem: headerIndex(h, '학기'), pick: headerIndex(h, '선택과목수', '택'), credits: headerIndex(h, '학점'),
+    optional: headerIndex(h, '희망자선택', '희망자'), shared: headerIndex(h, '공유캠퍼스'), notice: headerIndex(h, '안내문', '안내'),
+  };
+  const groups = [];
+  rows.slice(1).forEach((r, i) => {
+    const id = cell(r, ix.id).toUpperCase().replace(/\s+/g,'');
+    if (!id) return;
+    const semester = parseSemester(cell(r, ix.sem));
+    const maxPick = toNumOrNull(cell(r, ix.pick));
+    if (!semester) issues.push(`[선택군] ${i+2}행 ${id}: 학기를 알 수 없습니다 ('2-1'처럼 적어 주세요).`);
+    if (!maxPick) issues.push(`[선택군] ${i+2}행 ${id}: 선택과목수가 비어 있습니다.`);
+    if (!semester || !maxPick) return;
+    const isSharedCampus = isYes(cell(r, ix.shared));
+    groups.push({
+      id, label: cell(r, ix.label) || id, semester, maxPick,
+      totalCredits: toNumOrNull(cell(r, ix.credits)) || 0,
+      isOptional: isYes(cell(r, ix.optional)) || isSharedCampus, isSharedCampus,
+      notice: cell(r, ix.notice),
+    });
+  });
+  return groups;
+};
+
+const parseRulesSheet = (rows, issues) => {
+  const h = rows[0];
+  const ix = {
+    track: headerIndex(h, '과정'), type: headerIndex(h, '규칙유형', '유형'), scope: headerIndex(h, '대상군', '적용군'),
+    cats: headerIndex(h, '대상교과'), subs: headerIndex(h, '대상과목'),
+    minCount: headerIndex(h, '최소과목'), maxCount: headerIndex(h, '최대과목'),
+    minCredits: headerIndex(h, '최소학점'), maxCredits: headerIndex(h, '최대학점'),
+    combine: headerIndex(h, '충족방식'), mand: headerIndex(h, '지정과목포함'), text: headerIndex(h, '안내문', '설명'),
+  };
+  const rules = [];
+  rows.slice(1).forEach((r, i) => {
+    const typeRaw = cell(r, ix.type).replace(/\s+/g,'');
+    const text = cell(r, ix.text);
+    if (!typeRaw && !text) return;
+    let type = typeRaw;
+    if (!RULE_TYPES.includes(type)) {
+      issues.push(`[규칙] ${i+2}행: 규칙유형 '${typeRaw}'을(를) 알 수 없어 '안내'로 처리했습니다. (${RULE_TYPES.join(' / ')})`);
+      type = '안내';
+    }
+    rules.push(R(normalizeTrack(cell(r, ix.track)), type, cell(r, ix.scope), {
+      categories: splitList(cell(r, ix.cats)), subjects: splitList(cell(r, ix.subs)),
+      minCount: toNumOrNull(cell(r, ix.minCount)), maxCount: toNumOrNull(cell(r, ix.maxCount)),
+      minCredits: toNumOrNull(cell(r, ix.minCredits)), maxCredits: toNumOrNull(cell(r, ix.maxCredits)),
+      combine: cell(r, ix.combine).includes('하나') || cell(r, ix.combine).includes('또는') ? '하나' : '모두',
+      includeMandatory: isYes(cell(r, ix.mand)), text, row: i + 2,
+    }));
+  });
+  return rules;
 };
 
 const parseCSV = (str) => {
@@ -294,8 +601,19 @@ function App() {
   const [dbUnivData, setDbUnivData] = useState([]);
   const [dbSubjects, setDbSubjects] = useState([]);
   const [dbMandatory, setDbMandatory] = useState(DEFAULT_MANDATORY_SUBJECTS);
-  const [dbConditions, setDbConditions] = useState([]);
   const [dbTimetableSheet, setDbTimetableSheet] = useState([]);
+  const [dbInfo, setDbInfo] = useState(DEFAULT_INFO);
+  const [dbGroups, setDbGroups] = useState(() => withGroupNames(DEFAULT_GROUPS));
+  const [dbRules, setDbRules] = useState(DEFAULT_RULES);
+  const [dataIssues, setDataIssues] = useState([]);
+  const [dataNotes, setDataNotes] = useState([]);
+
+  // 시트에서 불러온 선택군·규칙 (없으면 기본값)
+  const GROUPS = dbGroups;
+  const GROUP_DISPLAY_NAMES = useMemo(() => Object.fromEntries(dbGroups.map(g => [g.id, g.label])), [dbGroups]);
+  const preparedRules = useMemo(() => prepareRules(dbRules, dbGroups), [dbRules, dbGroups]);
+  const groupMap = useMemo(() => Object.fromEntries(dbGroups.map(g => [g.id, g])), [dbGroups]);
+  const CSAT_SHORT = `${String(dbInfo.csatYear).slice(2)}수능`;
 
   const [selectedField, setSelectedField] = useState('none');
   const [selectedMajor, setSelectedMajor] = useState('none');
@@ -417,7 +735,7 @@ function App() {
 
   // localStorage 불러오기
   useEffect(() => {
-    const saved = localStorage.getItem('hwikyung_courses_v72');
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const p = JSON.parse(saved);
@@ -435,7 +753,7 @@ function App() {
 
   // localStorage 저장
   useEffect(() => {
-    localStorage.setItem('hwikyung_courses_v72', JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo}));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo}));
   }, [selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo]);
 
   useEffect(() => {
@@ -448,8 +766,7 @@ function App() {
   const fetchGoogleSheetData = async (isManual=false) => {
     setIsLoading(true);
     setFetchError(null);
-    const secretPart = "QUtmeWNiekdwRXN3M1pGVUhlM2ZCdm0wMHNZMFhEY19iV1VEZWhOUVBDbDFqcTV4TlhVWDM5R0FKdHF4a1c1TE82d0R4YmVPa3c=";
-    const SHEET_URL = ["https://scrip", "t.google.co", "m/macros/s/", atob(secretPart), "/exec"].join('') + `?t=${new Date().getTime()}`;
+    const SHEET_URL = `${SHEET_URLS[ACTIVE_YEAR]}?t=${new Date().getTime()}`;
 
     const fetchWithRetry = async (url, retries=5) => {
       const delays=[1000,2000,4000,8000,16000];
@@ -471,6 +788,8 @@ function App() {
       if(text.trim().startsWith('<')) throw new Error("웹앱에 접근할 수 없습니다. 스크립트 배포 권한을 '모든 사용자'로 설정해주세요.");
 
       let parsedSubjects=[], parsedFields=[], parsedMajors=[], parsedConditions=[], parsedUnivRecs=[], parsedTimetable=[], dataArrays=[];
+      let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[];
+      const issues=[], notes=[];
       
       try {
         const jsonData = JSON.parse(text);
@@ -490,13 +809,26 @@ function App() {
             const k=key.replace(/\s+/g,'');
             const headerStr = rows.length > 0 ? rows[0].join('').replace(/\s+/g, '') : '';
             
+            // 1) 정해진 탭 이름이면 그대로 사용
+            const exact = Object.keys(TAB_NAMES).find(t => TAB_NAMES[t].replace(/\s+/g,'') === k);
+            if (exact === 'info') { parsedInfo = rows; return; }
+            if (exact === 'groups') { parsedGroups = rows; return; }
+            if (exact === 'rules') { parsedRules = rows; return; }
+            if (exact === 'sharedCampus') { parsedSharedCampus = rows; return; }
+            if (exact === 'subjects') { parsedSubjects = rows; return; }
+            if (exact === 'fields') { parsedFields = rows; return; }
+            if (exact === 'majors') { parsedMajors = rows; return; }
+            if (exact === 'univ') { parsedUnivRecs = rows; return; }
+            if (exact === 'conditions') { parsedConditions = rows; return; }
+
+            // 2) 이름이 다르면 탭 이름·제목 줄로 추측
             if (k.includes('대학별') || k.includes('이수권장')) {
                 parsedUnivRecs = rows;
-            } else if (headerStr.includes('과목명') && (headerStr.includes('편성') || headerStr.includes('군') || headerStr.includes('학점'))) {
+            } else if (parsedSubjects.length === 0 && headerStr.includes('과목명') && headerStr.includes('편성')) {
                 parsedSubjects = rows;
-            } else if (headerStr.includes('학과명') || (headerStr.includes('학과') && (headerStr.includes('유사') || headerStr.includes('주요전공')))) {
+            } else if (parsedMajors.length === 0 && headerStr.includes('학과명') || (headerStr.includes('학과') && (headerStr.includes('유사') || headerStr.includes('주요전공')))) {
                 parsedMajors = rows; 
-            } else if (headerStr.includes('계열') && (headerStr.includes('설명') || headerStr.includes('특성'))) {
+            } else if (parsedFields.length === 0 && headerStr.includes('계열') && (headerStr.includes('설명') || headerStr.includes('특성'))) {
                 parsedFields = rows; 
             } else if (k.includes('조건') || k.includes('유의')) {
                 parsedConditions = rows;
@@ -519,6 +851,26 @@ function App() {
         if(fallback!==undefined&&row[fallback]!=null&&String(row[fallback]).trim()!=='') return String(row[fallback]).trim();
         return '';
       };
+
+      // ── 기본정보 / 선택군 / 규칙 (탭이 없으면 기본값 사용) ──
+      const loadedInfo = parsedInfo.length > 1 ? parseInfoSheet(parsedInfo) : DEFAULT_INFO;
+      if (parsedInfo.length <= 1) notes.push(`[${TAB_NAMES.info}] 탭이 없어 코드의 기본값(${DEFAULT_INFO.admissionYear}학년도 입학생)을 사용합니다.`);
+      let loadedGroups = parsedGroups.length > 1 ? parseGroupsSheet(parsedGroups, issues) : [];
+      if (loadedGroups.length === 0) { loadedGroups = DEFAULT_GROUPS; notes.push(`[${TAB_NAMES.groups}] 탭이 없어 코드의 기본 선택군을 사용합니다.`); }
+      loadedGroups = withGroupNames(loadedGroups);
+      let loadedRules = parsedRules.length > 1 ? parseRulesSheet(parsedRules, issues) : [];
+      if (loadedRules.length === 0) { loadedRules = DEFAULT_RULES; notes.push(`[${TAB_NAMES.rules}] 탭이 없어 코드의 기본 규칙(2026 입학생 기준)을 사용합니다.`); }
+
+      // 공유캠퍼스 탭: 과목명 → 운영 학교
+      const sharedSchoolMap = {};
+      if (parsedSharedCampus.length > 1) {
+        const sh = parsedSharedCampus[0];
+        const iSchool = headerIndex(sh, '운영학교', '학교');
+        sh.forEach((hd, ci) => {
+          if (ci === iSchool || !normHeader(hd).includes('과목')) return;
+          parsedSharedCampus.slice(1).forEach(r => { const nm = cell(r, ci), sc = cell(r, iSchool); if (nm && sc) sharedSchoolMap[normalizeForMatch(nm)] = sc; });
+        });
+      }
 
       if(parsedUnivRecs&&parsedUnivRecs.length>0){
         let headerRowIdx=0;
@@ -690,98 +1042,49 @@ function App() {
             const sem=getSemesterFromText(groupStr);
             if(sem) loadedMandatory[sem].push({name,credits,type,desc,csat,popupData});
           } else {
-            const groupId=getGroupFromText(groupStr);
-            if(groupId) loadedSubjects.push({id:`s${rowIndex}`,name,group:groupId,type,credits,desc,csat,popupData});
+            const groupId=findGroupInText(groupStr, loadedGroups);
+            const g=loadedGroups.find(gr=>gr.id===groupId);
+            if(!g){ issues.push(`[과목데이터] ${rowIndex+2}행 '${name}': 편성 '${groupStr}'에 해당하는 선택군이 [선택군]에 없습니다.`); return; }
+            const semInText=getSemesterFromText(groupStr);
+            if(semInText&&semInText!==g.semester) issues.push(`[과목데이터] ${rowIndex+2}행 '${name}': 편성에는 ${semInText.replace('-','학년 ')}학기라고 적혀 있지만 ${g.id}군은 ${g.semester.replace('-','학년 ')}학기입니다.`);
+            if(!credits) issues.push(`[과목데이터] ${rowIndex+2}행 '${name}': 학점이 비어 있습니다.`);
+            const school=g.isSharedCampus?(sharedSchoolMap[normalizeForMatch(name)]||''):'';
+            if(g.isSharedCampus&&!school) issues.push(`[과목데이터] '${name}': [공유캠퍼스] 탭에서 운영 학교를 찾지 못했습니다.`);
+            // 과목 ID는 '군|과목명'으로 고정 → 시트 행 순서가 바뀌어도 학생 선택 기록이 유지됨
+            loadedSubjects.push({id:`${groupId}|${name}`,name,group:groupId,type,credits,desc,csat,school,popupData});
           }
         });
 
-        const sharedCampusSubjects=[
-          {id:'sc_2e_1',name:'생명과학실험(휘경여고)',group:'2E',type:'과학',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}},
-          {id:'sc_2e_2',name:'물리학실험(동대부고)',group:'2E',type:'과학',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}},
-          {id:'sc_2e_3',name:'국제경제(해성여고)',group:'2E',type:'사회 (역사/도덕 포함)',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}},
-          {id:'sc_2f_1',name:'화학 실험(휘경여고)',group:'2F',type:'과학',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}},
-          {id:'sc_2f_2',name:'소프트웨어와 생활(동대부고)',group:'2F',type:'기술·가정/정보',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}},
-          {id:'sc_2f_3',name:'국제정치(해성여고)',group:'2F',type:'사회 (역사/도덕 포함)',credits:2,desc:'공유캠퍼스 운영 과목',csat:'미출제',popupData:{selType:'',evalAbs:'',evalRel:'',desc:'',keywords:'',learn:[],advanced:[],recommend:[],youtube:''}}
-        ];
-
-        const enrichedSC = sharedCampusSubjects.map(sc => {
-          const scNorm = normalizeForMatch(sc.name);
-          
-          let matchedData = parsedSubjects.slice(1).find(row => {
-            const rowName = getVal(row, idx.subject, 0);
-            return rowName && rowName.replace(/\s+/g, '') === sc.name.replace(/\s+/g, '');
-          });
-
-          if (!matchedData) {
-            matchedData = parsedSubjects.slice(1).find(row => {
-              const rowName = getVal(row, idx.subject, 0);
-              return rowName && normalizeForMatch(rowName) === scNorm;
-            });
-          }
-
-          if (matchedData) {
-            const areas=areaIdxs.map(i=>getVal(matchedData,i,'')), concepts=conceptIdxs.map(i=>getVal(matchedData,i,'')), acts=actIdxs.map(i=>getVal(matchedData,i,''));
-            const learn=[];
-            for(let i=0;i<Math.max(areas.length,concepts.length,acts.length);i++){
-              if(areas[i]||concepts[i]||acts[i]) learn.push({area:areas[i]||'',concept:concepts[i]||'',act:acts[i]||''});
-            }
-            const ints=intIdxs.map(i=>getVal(matchedData,i,'')), topics=topicIdxs.map(i=>getVal(matchedData,i,'')), cases=caseIdxs.map(i=>getVal(matchedData,i,''));
-            const advanced=[];
-            for(let i=0;i<Math.max(ints.length,topics.length,cases.length);i++){
-              if(ints[i]||topics[i]||cases[i]) advanced.push({int:ints[i]||'',topic:topics[i]||'',case:cases[i]||''});
-            }
-            let recommend=[];
-            recIdxs.forEach(i=>{const val=getVal(matchedData,i,'');if(val){const lines=val.split('\n').map(l=>l.replace(/^[•\-\*]\s*/,'').trim()).filter(l=>l);recommend.push(...lines);}});
-            
-            const desc = getVal(matchedData, idx.desc, 5);
-            const matchedType = getVal(matchedData, idx.type, 3);
-            const matchedCreditsStr = getVal(matchedData, idx.credits, 2);
-            const matchedCredits = parseInt(matchedCreditsStr.replace(/[^0-9]/g,''),10);
-            
-            return {
-              ...sc,
-              type: matchedType || sc.type,
-              credits: matchedCredits || sc.credits,
-              desc: desc || sc.desc, 
-              csat: getVal(matchedData, idx.csat, 8) || sc.csat,
-              popupData: {
-                selType: getVal(matchedData, idx.selType, ''),
-                evalAbs: getVal(matchedData, idx.evalAbs, ''),
-                evalRel: getVal(matchedData, idx.evalRel, ''),
-                desc: desc || sc.desc,
-                keywords: getVal(matchedData, idx.keywords, ''),
-                learn: learn,
-                advanced: advanced,
-                recommend: recommend,
-                youtube: getVal(matchedData, idx.youtube, -1)
-              }
-            };
-          }
-          return sc;
-        });
-
-        const filteredSubjects=loadedSubjects.filter(s=>s.group!=='2E'&&s.group!=='2F');
-        setDbSubjects([...filteredSubjects,...enrichedSC]);
+        setDbSubjects(loadedSubjects);
         setDbMandatory(loadedMandatory);
       }
 
-      const loadedConditions=[];
-      if(parsedConditions.length>0){
-        parsedConditions.forEach((row,rowIndex)=>{
-          if(rowIndex===0) return;
-          const text=row.filter(Boolean).join(' ').trim();
-          if(text) loadedConditions.push(text);
-        });
-      }
-      const standardConditions=[
-        "2학년 기술⸱가정/정보/제2외국어/한문/교양 교과군의 과목을 1, 2학기 동일하게 선택할 수 없음.",
-        "3학년 체육 교과군의 '운동과 건강' 과목을 1, 2학기 동일하게 선택할 수 없음.",
-        "국어/수학/영어 교과군 과목은 3개년간 81학점을 초과할 수 없음 (2~3학년에서 총 21학점 이내로 선택).",
-        "과학중점 과정 학생은 2, 3학년 선택에서 수학, 과학, 정보 교과군 과목을 79학점 이상 이수하여야 함.",
-        "과학중점 과정 학생은 2, 3학년 선택에서 수학교과 1과목 이상, 정보교과 4학점 또는 2과목 반드시 선택해야 함.",
-        "희망자에 한해 2학년에서 공유캠퍼스 과목을 추가신청 할 수 있음."
-      ];
-      setDbConditions(loadedConditions.length>0?loadedConditions:standardConditions);
+      // ── 시트 점검 (?check=1 화면에 표시) ──
+      const subjectsForCheck = parsedSubjects.length>1 ? loadedSubjects : [];
+      loadedGroups.forEach(g=>{
+        const subs=subjectsForCheck.filter(x=>x.group===g.id);
+        if(subjectsForCheck.length>0&&subs.length<g.maxPick) issues.push(`[선택군] ${g.id}(${g.label})군: 과목이 ${subs.length}개뿐인데 ${g.maxPick}과목을 골라야 합니다.`);
+        if(!g.isOptional&&g.totalCredits){
+          subs.filter(x=>x.credits&&x.credits*g.maxPick!==g.totalCredits).forEach(x=>issues.push(`[선택군] ${g.id}군 '${x.name}': ${x.credits}학점 × 택${g.maxPick} ≠ 군 학점 ${g.totalCredits}학점`));
+        }
+      });
+      const knownTypes=[...TYPE_ORDER,'정보'];
+      prepareRules(loadedRules, loadedGroups).forEach(r=>{
+        const where=r.row?`[규칙] ${r.row}행`:'[기본 규칙]';
+        r.categories.filter(c=>!knownTypes.includes(normalizeType(c,''))&&c.replace(/\s+/g,'')!=='정보').forEach(c=>issues.push(`${where}: 대상교과 '${c}'을(를) 알 수 없습니다.`));
+        if(r.scope&&!/전체|학년/.test(r.scope)&&!r.scopeExplicit) issues.push(`${where}: 대상군 '${r.scope}'에 해당하는 선택군이 없습니다.`);
+        if(['지정과목','중복금지'].includes(r.type)||r.subjects.length>0){
+          r.subjects.filter(nm=>!subjectsForCheck.some(x=>r.groupIds.includes(x.group)&&normalizeForMatch(x.name)===normalizeForMatch(nm)))
+            .forEach(nm=>subjectsForCheck.length>0&&issues.push(`${where}: 대상과목 '${nm}'이(가) 대상군 과목 목록에 없습니다 (띄어쓰기·Ⅰ/I 확인).`));
+        }
+        if(r.type==='지정과목'&&r.subjects.length===0) issues.push(`${where}: 지정과목 규칙인데 대상과목이 비어 있습니다.`);
+      });
+
+      setDbInfo(loadedInfo);
+      setDbGroups(loadedGroups);
+      setDbRules(loadedRules);
+      setDataIssues(issues);
+      setDataNotes(notes);
       if (parsedTimetable && parsedTimetable.length > 0) setDbTimetableSheet(parsedTimetable);
       setIsLoading(false);
 
@@ -793,6 +1096,7 @@ function App() {
   };
 
   useEffect(() => { fetchGoogleSheetData(); }, []);
+  useEffect(() => { document.title = `${dbInfo.schoolName} 과목 선택 시스템 (${dbInfo.admissionYear}학년도 입학생)`; }, [dbInfo]);
 
   const selectedSubjects = dbSubjects.filter(s=>selectedIds.includes(s.id));
 
@@ -817,7 +1121,7 @@ function App() {
     });
     selectedSubjects.forEach(e=>{
       const groupDef=GROUPS.find(g=>g.id===e.group);
-      if(groupDef) allPlan.push({semester:groupDef.semester,name:e.name,credits:e.credits,type:normalizeType(e.type,e.name),isMandatory:false,csat:e.csat,groupId:e.group});
+      if(groupDef) allPlan.push({semester:groupDef.semester,name:e.name,credits:e.credits,type:normalizeType(e.type,e.name),isMandatory:false,csat:e.csat,groupId:e.group,school:e.school});
     });
     const forcedTypes=['기술·가정/정보','제2외국어/한문'];
     const presentTypes=TYPE_ORDER.filter(t=>forcedTypes.includes(t)||allPlan.some(item=>item.type===t));
@@ -904,272 +1208,15 @@ function App() {
   const popupRecommenders = useMemo(() => getRecommenders(infoModalSubject), [infoModalSubject, dbMajors]);
   const guideRecommenders = useMemo(() => getRecommenders(guideSubjectDetails), [guideSubjectDetails, dbMajors]);
 
-  // 실시간 조건 검증 엔진
+  // 실시간 조건 검증 엔진 ([규칙] 탭 기반)
+  const mandatoryList = useMemo(() => Object.values(dbMandatory).flat(), [dbMandatory]);
   const evaluatedConditions = useMemo(() => {
-    const isAllGroupsCompleted = GROUPS.filter(g => !g.isOptional).every(g => {
-        return selectedSubjects.filter(s => s.group === g.id).length >= g.maxPick;
+    return preparedRules.map(rule => {
+      const { status, detail } = evaluateRule(rule, { groupMap, selected: selectedSubjects, mandatoryList });
+      const text = rule.text || `${rule.scope || '전체'} ${rule.type}${rule.categories.length ? ` (${rule.categories.join(', ')})` : ''}`;
+      return { key: rule.key, track: rule.track, rule, original: text, displayOriginal: replaceGroupIds(text, GROUPS), status, currentStatusText: detail };
     });
-
-    return dbConditions.map(cond => {
-      let status = 'info';
-      let currentStatusText = '';
-      const text = cond.replace(/\s+/g, '');
-      let displayOriginal = cond.replace(/(일반\s*과정|과학중점\s*과정)\s*[:：\-]\s*/g, '').trim();
-      displayOriginal = displayOriginal.replace(/\b(2A|2B|2C|2D|2E|2F|3A|3B|3C|3D|3E|3F)\b/g, match => GROUP_DISPLAY_NAMES[match]);
-
-      if (text.includes('국어/수학/영어') && text.includes('21학점')) { 
-        const kmeCredits = selectedSubjects
-            .filter(s => !['2E','2F'].includes(s.group) && ['국어','수학','영어'].includes(normalizeType(s.type, s.name)))
-            .reduce((sum, s) => sum + s.credits, 0);
-            
-        if (!isAllGroupsCompleted) {
-            status = 'info';
-            currentStatusText = `(전체 과목 선택 진행 중... 현재 국/수/영: ${kmeCredits}학점)`;
-        } else {
-            status = kmeCredits <= 21 ? 'pass' : 'fail';
-            currentStatusText = kmeCredits <= 21 ? `(조건 충족: ${kmeCredits}학점)` : `(조건 위반: ${kmeCredits}학점)`;
-        }
-      }
-      else if (text.includes('2학년') && (text.includes('동일하게') || text.includes('동일과목')) && (text.includes('기술') || text.includes('제2외국어'))) { 
-        const sem1Names = selectedSubjects.filter(s => ['2C'].includes(s.group)).map(s => s.name);
-        const sem2 = selectedSubjects.filter(s => ['2D'].includes(s.group));
-        const typesToCheck = ['기술·가정/정보', '제2외국어/한문'];
-        const overlap = sem2.some(s => typesToCheck.includes(normalizeType(s.type, s.name)) && sem1Names.includes(s.name));
-        
-        const is2ndGradeComplete = ['2C','2D'].every(gId => {
-            const g = GROUPS.find(gr => gr.id === gId);
-            return selectedSubjects.filter(s => s.group === gId).length >= g.maxPick;
-        });
-
-        if (overlap) {
-            status = 'fail';
-            currentStatusText = '(중복 선택됨 - 요건 위반)';
-        } else if (!is2ndGradeComplete) {
-            status = 'info';
-            currentStatusText = '(C 과목 선택 진행 중)';
-        } else {
-            status = 'pass';
-            currentStatusText = '(중복 없음)';
-        }
-      }
-      else if (text.includes('3학년') && text.includes('운동과건강') && (text.includes('동일하게') || text.includes('동일과목'))) { 
-        const sem1Names = selectedSubjects.filter(s => ['3A','3B','3C'].includes(s.group)).map(s => s.name);
-        const sem2 = selectedSubjects.filter(s => ['3D','3E','3F'].includes(s.group));
-        const overlap = sem2.some(s => s.name.includes('운동과 건강') && sem1Names.includes(s.name));
-        
-        const is3rdGradeComplete = ['3A','3B','3C','3D','3E','3F'].every(gId => {
-            const g = GROUPS.find(gr => gr.id === gId);
-            return selectedSubjects.filter(s => s.group === gId).length >= g.maxPick;
-        });
-
-        if (overlap) {
-            status = 'fail';
-            currentStatusText = '(중복 선택됨 - 요건 위반)';
-        } else if (!is3rdGradeComplete) {
-            status = 'info';
-            currentStatusText = '(3학년 과목 선택 진행 중)';
-        } else {
-            status = 'pass';
-            currentStatusText = '(중복 없음)';
-        }
-      }
-      else if (text.includes('과학중점') && text.includes('79학점')) { 
-        let mandCredits = 0;
-        Object.values(dbMandatory).flat().forEach(m => {
-            const t = normalizeType(m.type, m.name);
-            if (t === '수학' || t === '과학' || (t === '기술·가정/정보' && /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(m.name))) {
-                mandCredits += m.credits;
-            }
-        });
-        let selCredits = 0;
-        selectedSubjects.forEach(s => {
-            const t = normalizeType(s.type, s.name);
-            if (t === '수학' || t === '과학' || (t === '기술·가정/정보' && /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(s.name))) {
-                selCredits += s.credits;
-            }
-        });
-        const total = mandCredits + selCredits;
-        
-        if (total >= 79) {
-            status = 'pass';
-            currentStatusText = `(충족: 총 ${total}학점)`;
-        } else if (!isAllGroupsCompleted) {
-            status = 'info';
-            currentStatusText = `(전체 과목 선택 진행 중... 현재: 총 ${total}학점)`;
-        } else {
-            status = 'fail';
-            currentStatusText = `(미달: 총 ${total}학점, 79학점 필요)`;
-        }
-      }
-      else if (text.includes('과학중점') && text.includes('3D') && text.includes('과학') && (text.includes('3과목') || text.includes('3개'))) { 
-        const scienceIn3DCount = selectedSubjects.filter(s => s.group === '3D' && normalizeType(s.type, s.name) === '과학').length;
-        const group3D = GROUPS.find(g => g.id === '3D');
-        const is3DComplete = selectedSubjects.filter(s => s.group === '3D').length >= group3D.maxPick;
-
-        if (scienceIn3DCount >= 3) {
-            status = 'pass';
-            currentStatusText = `(충족: G 과학 ${scienceIn3DCount}과목)`;
-        } else if (!is3DComplete) {
-            status = 'info';
-            currentStatusText = `(G 군 선택 진행 중... 현재: 과학 ${scienceIn3DCount}과목)`;
-        } else {
-            status = 'fail';
-            currentStatusText = `(미달: G 과학 3과목 이상 필요)`;
-        }
-      }
-      else if (text.includes('과학중점') && text.includes('정보') && (text.includes('4학점') || text.includes('2과목'))) { 
-        const selInfo = selectedSubjects.filter(s => normalizeType(s.type, s.name) === '기술·가정/정보' && /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(s.name));
-        const selInfoCredits = selInfo.reduce((sum, s) => sum + s.credits, 0);
-        const selInfoCount = selInfo.length;
-
-        if (selInfoCredits >= 4 || selInfoCount >= 2) {
-            status = 'pass';
-            currentStatusText = `(충족: 정보 ${selInfoCredits}학점/${selInfoCount}과목)`;
-        } else if (!isAllGroupsCompleted) {
-            status = 'info';
-            currentStatusText = `(선택 진행 중... 현재: 정보 ${selInfoCredits}학점/${selInfoCount}과목)`;
-        } else {
-            status = 'fail';
-            currentStatusText = `(미달: 4학점 또는 2과목 이상 필요)`;
-        }
-      }
-      else if (text.includes('과학중점') && text.includes('수학') && (text.includes('1과목') || text.includes('1개')) && !text.includes('정보')) { 
-        const selMathCount = selectedSubjects.filter(s => normalizeType(s.type, s.name) === '수학').length;
-
-        if (selMathCount >= 1) {
-            status = 'pass';
-            currentStatusText = `(충족: 수학 ${selMathCount}과목)`;
-        } else if (!isAllGroupsCompleted) {
-            status = 'info';
-            currentStatusText = `(선택 진행 중... 현재: 수학 ${selMathCount}과목)`;
-        } else {
-            status = 'fail';
-            currentStatusText = `(미달: 수학 1과목 이상 필요)`;
-        }
-      }
-      else if (text.includes('과학중점') && text.includes('권장') && text.includes('정보')) { 
-        const hasInfo = selectedSubjects.some(s => 
-             ['2C', '2D'].includes(s.group) && 
-             (normalizeType(s.type, s.name) === '기술·가정/정보' || /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(s.name))
-        );
-        
-        const is2C2DComplete = ['2C', '2D'].every(gId => {
-            const g = GROUPS.find(gr => gr.id === gId);
-            return selectedSubjects.filter(s => s.group === gId).length >= g.maxPick;
-        });
-
-        if (hasInfo) {
-            status = 'pass';
-            currentStatusText = '(정보 과목 선택 완료)';
-        } else if (!is2C2DComplete) {
-            status = 'info';
-            currentStatusText = '(C 과목 선택 진행 중)';
-        } else {
-            status = 'pass'; 
-            currentStatusText = '(정보 과목 미선택 - 필수는 아님)';
-        }
-      }
-      else {
-        const mentionedGroups = GROUPS.filter(g => cond.includes(g.id));
-        if (mentionedGroups.length > 0) {
-            const allComplete = mentionedGroups.every(g => {
-                const picked = selectedSubjects.filter(s => s.group === g.id).length;
-                return picked >= g.maxPick;
-            });
-            
-            if (!allComplete) {
-                status = 'info';
-                const progressTexts = mentionedGroups.map(g => { 
-                    const picked = selectedSubjects.filter(s => s.group === g.id).length;
-                    return `${GROUP_DISPLAY_NAMES[g.id]}(${picked}/${g.maxPick})`;
-                });
-                currentStatusText = `(해당 군 선택 진행 중... ${progressTexts.join(', ')})`;
-            } else {
-                if (text.includes('국어') && text.includes('수학') && text.includes('영어')) {
-                    if (text.includes('최대1과목') || text.includes('1과목선택가능') || text.includes('1과목만')) {
-                        let isViolated = false;
-                        let details = [];
-                        
-                        mentionedGroups.forEach(g => {
-                            const groupSubjects = selectedSubjects.filter(s => s.group === g.id);
-                            const kCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '국어').length;
-                            const mCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '수학').length;
-                            const eCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '영어').length;
-                            
-                            const sumKME = kCount + mCount + eCount;
-                            if (sumKME > 1) isViolated = true;
-                            if (sumKME > 0) details.push(`${GROUP_DISPLAY_NAMES[g.id]}[국${kCount}/수${mCount}/영${eCount}]`);
-                        });
-
-                        if (!isViolated) {
-                            status = 'pass';
-                            currentStatusText = details.length > 0 ? `(조건 충족 - ${details.join(', ')})` : '(조건 충족)';
-                        } else {
-                            status = 'fail';
-                            currentStatusText = `(요건 위반 - 1과목 초과 선택됨)`;
-                        }
-                    } 
-                    else if (text.includes('필수') || text.includes('각1과목')) {
-                        let isViolated = false;
-                        let details = [];
-                        
-                        mentionedGroups.forEach(g => {
-                            const groupSubjects = selectedSubjects.filter(s => s.group === g.id);
-                            const kCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '국어').length;
-                            const mCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '수학').length;
-                            const eCount = groupSubjects.filter(s => normalizeType(s.type, s.name) === '영어').length;
-                            
-                            if (kCount < 1 || mCount < 1 || eCount < 1) isViolated = true;
-                            details.push(`${GROUP_DISPLAY_NAMES[g.id]}[국:${kCount}, 수:${mCount}, 영:${eCount}]`);
-                        });
-
-                        if (!isViolated) {
-                            status = 'pass';
-                            currentStatusText = '(조건 충족)';
-                        } else {
-                            status = 'fail';
-                            currentStatusText = `(요건 위반 - ${details.join(', ')})`;
-                        }
-                    } 
-                    else {
-                        status = 'pass';
-                        currentStatusText = '(해당 군 선택 완료)';
-                    }
-                }
-                else if (text.includes('중') || text.includes('만선택') || text.includes('필수')) {
-                    let isViolated = false;
-
-                    mentionedGroups.forEach(g => {
-                        const groupSubjects = selectedSubjects.filter(s => s.group === g.id);
-                        const invalidCount = groupSubjects.filter(s => {
-                            const sName = s.name.replace(/\s+/g, '');
-                            const baseName = sName.replace(/[ⅠⅡⅢⅣ1234]/g, '');
-                            const isMentioned = text.includes(sName) || text.includes(baseName) || (baseName === '물리학' && text.includes('물리')) || (baseName === '생명과학' && text.includes('생명')) || (baseName === '지구과학' && text.includes('지구'));
-                            return !isMentioned;
-                        }).length;
-
-                        if (invalidCount > 0) isViolated = true;
-                    });
-
-                    if (!isViolated) {
-                        status = 'pass';
-                        currentStatusText = '(조건 충족)';
-                    } else {
-                        status = 'fail';
-                        currentStatusText = `(요건 위반 - 지정되지 않은 과목 포함)`;
-                    }
-                }
-                else {
-                    status = 'pass';
-                    currentStatusText = '(해당 군 선택 완료)';
-                }
-            }
-        }
-      }
-
-      return { original: cond, displayOriginal, status, currentStatusText };
-    });
-  }, [dbConditions, selectedSubjects, dbMandatory]);
+  }, [preparedRules, selectedSubjects, mandatoryList, groupMap, GROUPS]);
 
   // 커스텀 과정 변경 및 초기화 경고 로직
   const handleTrackChange = (trackType, isChecked) => {
@@ -1226,160 +1273,23 @@ function App() {
     }
 
     const groupDef = GROUPS.find(g=>g.id===subject.group);
+    if(!groupDef) return;
     const currentGroupSelections = selectedSubjects.filter(s=>s.group===subject.group);
-    
-    if(['2E','2F'].includes(subject.group)){
-      if(currentGroupSelections.length >= groupDef.maxPick){
-        setAlertMessage(`⚠️ 공유캠퍼스 안내\n\n[${groupDef.name}] 에서는 최대 ${groupDef.maxPick}과목까지만 선택 가능합니다.`);
-        return;
-      }
-      setSelectedIds([...selectedIds,subject.id]); 
-      return;
-    }
-
-    const subjectNormalizedType = normalizeType(subject.type, subject.name);
-    
-    if (subject.group === '3D') {
-        if (['국어', '수학', '영어'].includes(subjectNormalizedType)) {
-            const sameTypeIn3D = currentGroupSelections.filter(s => normalizeType(s.type, s.name) === subjectNormalizedType);
-            if (sameTypeIn3D.length >= 1) {
-                setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[G] 군에서는 ${subjectNormalizedType} 교과군 과목을 1개만 선택해야 합니다.`);
-                return;
-            }
-        } else {
-            const otherIn3D = currentGroupSelections.filter(s => !['국어', '수학', '영어'].includes(normalizeType(s.type, s.name)));
-            if (otherIn3D.length >= 4) {
-                setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[G] 군에서 국어/수학/영어 필수 선택(각 1과목)을 제외한 '그 외 과목'은 최대 4개까지만 선택 가능합니다.`);
-                return;
-            }
-        }
-        
-        if (isScienceTrack && subjectNormalizedType !== '과학') {
-            const has3DScienceCond = dbConditions.some(c => { const t = c.replace(/\s+/g, ''); return t.includes('과학중점') && t.includes('3D') && t.includes('과학') && t.includes('3과목'); });
-            if (has3DScienceCond) {
-                const currentNonScience = currentGroupSelections.filter(s => normalizeType(s.type, s.name) !== '과학').length;
-                if (currentNonScience >= 4) {
-                    setAlertMessage(`⚠️ 과학중점 과정 지정 과목 위반\n\n[G] 군에서는 과학 교과군 과목을 반드시 3과목 이상 포함해야 합니다.\n(현재 과학 이외의 과목을 최대 허용치인 4개까지 선택했습니다.)`);
-                    return;
-                }
-            }
-        }
-    }
-
-    const hasGroupKmeCond = dbConditions.some(c => { 
-      const t = c.replace(/\s+/g, ''); 
-      return t.includes(subject.group) && t.includes('국어') && t.includes('수학') && t.includes('영어') && (t.includes('최대1과목') || t.includes('1과목선택가능') || t.includes('1과목만')); 
-    });
-    if(hasGroupKmeCond && ['국어','수학','영어'].includes(subjectNormalizedType)){
-      const kmeInSameGroup = currentGroupSelections.filter(s=>['국어','수학','영어'].includes(normalizeType(s.type,s.name)));
-      if(kmeInSameGroup.length >= 1){
-        setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[${groupDef.name}] 군에서 국어/수학/영어 교과군 과목은 최대 1개까지만 선택 가능합니다.`);
-        return;
-      }
-    }
-    
     if(currentGroupSelections.length >= groupDef.maxPick){
       setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[${groupDef.name}] 군에서는 최대 ${groupDef.maxPick}과목까지만 선택 가능합니다.\n다른 과목을 빼고 담아주세요.`);
       return;
     }
 
-    const newSelectedSubjects = [...selectedSubjects, subject];
-
-    const hasKme21Cond = dbConditions.some(c => { const t = c.replace(/\s+/g, ''); return t.includes('국어/수학/영어') && t.includes('21학점'); });
-    if(hasKme21Cond && ['국어','수학','영어'].includes(subjectNormalizedType)){
-      const currentKmeCredits = newSelectedSubjects
-        .filter(s => !['2E','2F'].includes(s.group))
-        .filter(s => ['국어','수학','영어'].includes(normalizeType(s.type,s.name)))
-        .reduce((sum, s) => sum + s.credits, 0);
-      if(currentKmeCredits > 21){
-        setAlertMessage(`⚠️ 요건 위반\n\n국어/수학/영어 교과군 선택 과목은 2~3학년 총합 21학점을 초과할 수 없습니다.\n\n(해당 과목 추가 시 ${currentKmeCredits}학점이 되어 21학점을 초과합니다.)`);
+    // [규칙] 탭의 규칙을 하나씩 확인 (현재 과정에 해당하는 규칙만)
+    const nextSelected = [...selectedSubjects, subject];
+    for (const rule of preparedRules) {
+      if (!ruleAppliesToTrack(rule, isScienceTrack)) continue;
+      const reason = getAddViolation(rule, subject, nextSelected, { groupMap, mandatoryList });
+      if (reason) {
+        const ruleText = replaceGroupIds(rule.text || `${rule.scope} ${rule.type}`, GROUPS);
+        setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[${groupDef.name}] '${subject.name}'\n${reason}\n\n요건: ${ruleText}`);
         return;
       }
-    }
-
-    const has2ndGradeOverlapCond = dbConditions.some(c => { const t = c.replace(/\s+/g, ''); return t.includes('2학년') && (t.includes('동일하게') || t.includes('동일과목')) && (t.includes('기술') || t.includes('제2외국어')); });
-    const typesToCheck = ['기술·가정/정보', '제2외국어/한문'];
-    if (has2ndGradeOverlapCond && typesToCheck.includes(subjectNormalizedType) && ['2C','2D'].includes(subject.group)) { 
-        const sem1Names = newSelectedSubjects.filter(s => ['2C'].includes(s.group)).map(s => s.name);
-        const sem2Names = newSelectedSubjects.filter(s => ['2D'].includes(s.group)).map(s => s.name);
-        
-        const isSem1 = ['2C'].includes(subject.group);
-        if (isSem1 && sem2Names.includes(subject.name)) {
-            setAlertMessage(`⚠️ 요건 위반\n\n2학년 기술⸱가정/정보/제2외국어/한문 교과군의 '${subject.name}' 과목을 C군(1, 2학기)에서 동일하게 선택할 수 없습니다.`);
-            return;
-        }
-        if (!isSem1 && sem1Names.includes(subject.name)) {
-            setAlertMessage(`⚠️ 요건 위반\n\n2학년 기술⸱가정/정보/제2외국어/한문 교과군의 '${subject.name}' 과목을 C군(1, 2학기)에서 동일하게 선택할 수 없습니다.`);
-            return;
-        }
-    }
-
-    const has3rdGradePEOverlapCond = dbConditions.some(c => { const t = c.replace(/\s+/g, ''); return t.includes('3학년') && t.includes('운동과건강') && (t.includes('동일하게') || t.includes('동일과목')); });
-    if (has3rdGradePEOverlapCond && subject.name.includes('운동과 건강') && ['3A','3B','3C','3D','3E','3F'].includes(subject.group)) { 
-        const s1 = newSelectedSubjects.filter(s => ['3A','3B','3C'].includes(s.group)).map(s => s.name);
-        const s2 = newSelectedSubjects.filter(s => ['3D','3E','3F'].includes(s.group)).map(s => s.name);
-        const isSem1 = ['3A','3B','3C'].includes(subject.group);
-        if ((isSem1 && s2.includes(subject.name)) || (!isSem1 && s1.includes(subject.name))) {
-            setAlertMessage(`⚠️ 요건 위반\n\n3학년 체육 교과군의 '${subject.name}' 과목을 1, 2학기 동일하게 선택할 수 없습니다.`);
-            return;
-        }
-    }
-
-    const has79CreditsCond = dbConditions.some(c => { const t = c.replace(/\s+/g, ''); return t.includes('과학중점') && t.includes('79학점'); });
-    if (has79CreditsCond && isScienceTrack) {
-        let mandCredits = 0;
-        Object.values(dbMandatory).flat().forEach(m => {
-            const t = normalizeType(m.type, m.name);
-            if (t === '수학' || t === '과학' || (t === '기술·가정/정보' && /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(m.name))) {
-                mandCredits += m.credits;
-            }
-        });
-
-        let totalPossibleElectiveCredits = 0;
-        GROUPS.filter(g => !g.isOptional).forEach(g => {
-            totalPossibleElectiveCredits += g.totalCredits;
-        });
-
-        let currentSelNonMSICredits = 0;
-        newSelectedSubjects.forEach(s => {
-            const t = normalizeType(s.type, s.name);
-            const isMSI = t === '수학' || t === '과학' || (t === '기술·가정/정보' && /정보|인공지능|소프트웨어|프로그래밍|컴퓨터/.test(s.name));
-            if (!isMSI && !['2E', '2F'].includes(s.group)) {
-                currentSelNonMSICredits += s.credits;
-            }
-        });
-
-        const maxAllowedNonMSI = totalPossibleElectiveCredits - (79 - mandCredits); 
-        if (currentSelNonMSICredits > maxAllowedNonMSI) {
-            setAlertMessage(`⚠️ 과학중점 과정 요건 위반\n\n해당 과목을 담을 경우, 수학/과학/정보 교과군 79학점 이상 이수 조건을 달성할 수 없게 됩니다.\n(현재 수학/과학/정보 이외의 과목이 최대 허용치인 ${maxAllowedNonMSI}학점을 초과합니다.)`);
-            return;
-        }
-    }
-
-    if (isScienceTrack) {
-        const groupCond = dbConditions.find(cond => {
-            const c = cond.replace(/\s+/g, '');
-            if (c.includes('일반과정') || c.includes('권장') || c.includes('중복') || c.includes('동일') || c.includes('필수포함') || (c.includes('국어') && c.includes('수학') && c.includes('영어'))) return false;
-            
-            const cCleaned = c.replace(/과학중점/g, '');
-            return cCleaned.includes(subject.group) && (cCleaned.includes('중') || cCleaned.includes('만선택') || cCleaned.includes('필수'));
-        });
-
-        if (groupCond) {
-            const sName = subject.name.replace(/\s+/g, '');
-            const baseName = sName.replace(/[ⅠⅡⅢⅣ1234]/g, '');
-            const c = groupCond.replace(/\s+/g, '');
-            
-            const isMentioned = c.includes(sName) || c.includes(baseName) || 
-                                 (baseName === '물리학' && c.includes('물리')) || 
-                                 (baseName === '생명과학' && c.includes('생명')) || 
-                                 (baseName === '지구과학' && c.includes('지구'));
-                                 
-            if (!isMentioned) {
-                setAlertMessage(`⚠️ 요건 위반\n\n과학중점 과정은 [${groupDef.name}] 군에서 지정된 과목 내에서만 선택해야 합니다.\n\n요건: ${groupCond.replace(/(일반\s*과정|과학중점\s*과정)\s*[:：\-]\s*/g, '').trim()}`);
-                return;
-            }
-        }
     }
 
     setSelectedIds([...selectedIds, subject.id]);
@@ -1402,7 +1312,7 @@ function App() {
           </div>
         </div>
         <div className="hidden xl:flex items-center gap-2 text-xs lg:text-sm font-bold bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm flex-wrap print:flex print:w-full print:border-none print:shadow-none print:p-0 print:gap-1.5 print:mt-1 print:justify-start">
-          <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>29수능 출제</span>
+          <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>{CSAT_SHORT} 출제</span>
           <span className="flex items-center gap-1 text-green-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-white border-[3px] border-green-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>계열 추천</span>
           <span className="flex items-center gap-1 text-pink-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-pink-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>학과 추천</span>
           <span className="flex items-center gap-1 text-blue-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-blue-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>공통 추천</span>
@@ -1436,14 +1346,8 @@ function App() {
                         const isFieldRec=Array.from(fieldRecommendedSet).some(rec=>normalizeForMatch(rec)===normSubj);
                         const showBothRec=isMajorRec&&isFieldRec;
                         const isCsat=item.csat&&item.csat.trim()!==''&&!/x|-|해당|미출|없음|아님/i.test(item.csat);
-                        const isSharedCampus=item.groupId==='2E'||item.groupId==='2F';
-                        
-                        let displaySubjName=item.name;
-                        if(isSharedCampus){
-                          if(item.name.includes('동대부고'))displaySubjName=item.name.replace(/\(동대부고\)/g,'').trim()+' (동국)';
-                          else if(item.name.includes('해성여고'))displaySubjName=item.name.replace(/\(해성여고\)/g,'').trim()+' (해성)';
-                          else if(item.name.includes('휘경여고'))displaySubjName=item.name.replace(/\(휘경여고\)/g,'').trim()+' (휘경)';
-                        }
+                        const isSharedCampus=!!groupMap[item.groupId]?.isSharedCampus;
+                        const displaySubjName=item.school?`${item.name} (${item.school})`:item.name;
 
                         let bgClass=item.isMandatory?'bg-slate-50 text-slate-700':'bg-blue-50 text-blue-900';
                         let borderClass=item.isMandatory?'border-slate-300 border-[1px]':'border-blue-300 border-[1px]';
@@ -1490,7 +1394,7 @@ function App() {
               const mandatories=dbMandatory[semester]||[];
               const standardElectives=selectedSubjects.filter(s=>{const g=GROUPS.find(gr=>gr.id===s.group);return g&&g.semester===semester&&!g.isOptional;});
               const totalSemCredits=mandatories.reduce((sum,s)=>sum+s.credits,0)+standardElectives.reduce((sum,s)=>sum+s.credits,0);
-              return <td key={`total-${semester}`} className={`border-2 border-slate-300 p-2 text-base lg:text-lg print:p-0.5 print:text-[8pt] ${totalSemCredits>=29?'text-blue-800':'text-slate-600'}`}>{totalSemCredits}</td>;
+              return <td key={`total-${semester}`} className={`border-2 border-slate-300 p-2 text-base lg:text-lg print:p-0.5 print:text-[8pt] ${totalSemCredits>=dbInfo.semesterCredits?'text-blue-800':'text-slate-600'}`}>{totalSemCredits}</td>;
             })}
           </tr>
         </tbody>
@@ -1564,7 +1468,7 @@ function App() {
 
           <div className="print-first-page-wrap w-full">
             <div style={RS.title} className="print-tight-title">
-              <h1 style={RS.h1}>휘경여자고등학교 선택과목 보고서</h1>
+              <h1 style={RS.h1}>{dbInfo.schoolName} 선택과목 보고서</h1>
             </div>
 
             <div className="report-section" style={{marginBottom:'0'}}>
@@ -1680,7 +1584,7 @@ function App() {
                           <tr>
                             <th style={{...RS.thBlue,width:'33%'}}>절대 평가(성취도)</th>
                             <th style={{...RS.thBlue,width:'33%'}}>상대 평가</th>
-                            <th style={{...RS.thBlue,width:'33%'}}>2029 수능 출제 과목</th>
+                            <th style={{...RS.thBlue,width:'33%'}}>{dbInfo.csatYear} 수능 출제 과목</th>
                           </tr>
                         </thead>
                         <tbody style={{background:'white'}}>
@@ -1847,7 +1751,7 @@ function App() {
               <h4 className="font-extrabold text-[1.3rem] lg:text-[1.5rem] text-blue-800 flex items-center gap-2">ℹ️ 과목 프로필</h4>
               <div className="rounded-xl overflow-hidden border border-blue-200 shadow-sm">
                 <table className="w-full border-collapse text-center text-base">
-                  <thead><tr className="bg-blue-100 text-blue-900"><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">절대 평가(성취도)</th><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">상대 평가</th><th className="p-3 border-b border-blue-200 font-bold w-1/3">2029 수능 출제 과목</th></tr></thead>
+                  <thead><tr className="bg-blue-100 text-blue-900"><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">절대 평가(성취도)</th><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">상대 평가</th><th className="p-3 border-b border-blue-200 font-bold w-1/3">{dbInfo.csatYear} 수능 출제 과목</th></tr></thead>
                   <tbody className="bg-white"><tr><td className="p-3 border-r border-blue-200 font-medium whitespace-pre-wrap">{infoModalSubject.popupData?.evalAbs||'-'}</td><td className="p-3 border-r border-blue-200 font-medium whitespace-pre-wrap">{infoModalSubject.popupData?.evalRel||'-'}</td><td className="p-3 font-medium whitespace-pre-wrap">{infoModalSubject.csat||'-'}</td></tr></tbody>
                 </table>
               </div>
@@ -1926,8 +1830,8 @@ function App() {
       {/* 헤더 */}
       <header className="mb-4 bg-white px-4 py-3 lg:px-6 lg:py-4 rounded-2xl shadow-sm border-l-[8px] border-blue-950 flex flex-col relative z-[250] shrink-0 no-print">
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 lg:gap-4">
-          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight">휘경여자고등학교 과목 선택 시스템</h1>
-          <span className="text-base font-bold text-white bg-blue-600 px-3 py-1 rounded-md shadow-sm">(2026학년도 입학생용)</span>
+          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight">{dbInfo.schoolName} 과목 선택 시스템</h1>
+          <span className="text-base font-bold text-white bg-blue-600 px-3 py-1 rounded-md shadow-sm">({dbInfo.admissionYear}학년도 입학생용)</span>
           <span className="text-2xl lg:text-3xl font-black text-blue-700 ml-1 tracking-tight">1학년</span>
           <button onClick={()=>fetchGoogleSheetData(true)} disabled={isLoading} className="ml-auto md:ml-2 flex items-center gap-1.5 text-base font-bold text-slate-700 bg-white border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm disabled:opacity-50">
             🔄 {isLoading?'데이터 로딩 중...':'데이터 최신화'}
@@ -1936,7 +1840,7 @@ function App() {
         <div className="flex flex-col xl:flex-row justify-between items-center w-full mt-3 gap-4">
           <div className="flex flex-col items-center xl:items-start gap-1.5">
             <div className="flex flex-wrap justify-center xl:justify-start items-center gap-2">
-              <p className="text-sm md:text-base font-medium text-slate-600 break-keep">자료출처: 2026학년도 2022 개정 교육과정 선택 과목 안내서(서울특별시교육청)</p>
+              <p className="text-sm md:text-base font-medium text-slate-600 break-keep">자료출처: {dbInfo.source}</p>
               <a href="https://drive.google.com/file/d/1FyQ979JatdFJpU7OVQGU8gvg4_k16Doo/view?usp=sharing" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm md:text-base font-bold text-white bg-red-500 border border-red-600 px-3 py-1 rounded-md hover:bg-red-600">⬇ PDF 파일 다운로드</a>
             </div>
             <p className="text-sm md:text-base font-bold text-red-600 break-keep">본 페이지의 내용에 오류가 있을 수도 있으니 책자를 반드시 참고하여 확인 후 과목 선택을 하시길 바랍니다.</p>
@@ -1958,6 +1862,29 @@ function App() {
       </header>
 
       {/* Grid 레이아웃을 통해 좌우측 패널 배치 */}
+      {/* 시트 점검 화면: 주소 뒤에 ?check=1 */}
+      {CHECK_MODE&&!isLoading&&(
+        <section className="no-print w-full mb-4 rounded-2xl border-[3px] border-amber-500 bg-amber-50 p-4 lg:p-5">
+          <h2 className="text-xl font-black text-amber-900 mb-1">🔎 시트 점검 결과 ({ACTIVE_YEAR} 시트)</h2>
+          <p className="text-sm font-medium text-amber-800 mb-3">학생에게 공개하기 전에 아래 항목을 확인하세요. 이 상자는 주소에 <b>?check=1</b>이 있을 때만 보입니다.</p>
+          <p className="text-sm font-bold text-slate-700 mb-2">불러온 내용: 선택군 {GROUPS.length}개 · 규칙 {preparedRules.length}개 · 선택과목 {dbSubjects.length}개 · 계열 {Math.max(0,dbFields.length-1)}개</p>
+          {dataNotes.length>0&&(
+            <ul className="mb-3 space-y-1">{dataNotes.map((n,i)=><li key={i} className="text-sm font-bold text-blue-800">ℹ️ {n}</li>)}</ul>
+          )}
+          {dataIssues.length===0
+            ? <p className="text-base font-black text-green-700">✅ 발견된 문제가 없습니다.</p>
+            : <ul className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar">{dataIssues.map((n,i)=><li key={i} className="text-sm font-bold text-red-700">⚠️ {n}</li>)}</ul>}
+          <details className="mt-3">
+            <summary className="cursor-pointer text-sm font-bold text-slate-700">선택군 · 규칙 목록 보기</summary>
+            <div className="mt-2 grid gap-1 text-sm text-slate-700">
+              {GROUPS.map(g=><div key={g.id}><b>{g.id}</b> → {g.name}</div>)}
+              <hr className="my-2"/>
+              {preparedRules.map(r=><div key={r.key}>[{r.track}] <b>{r.type}</b> · 대상군 {r.groupIds.join(',')||'-'} · {replaceGroupIds(r.text,GROUPS)}</div>)}
+            </div>
+          </details>
+        </section>
+      )}
+
       <main className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full flex-1 relative no-print items-stretch">
         
         {/* ── 왼쪽 패널 ── */}
@@ -2062,12 +1989,19 @@ function App() {
               const isComplete=pickedCount===group.maxPick;
               if(groupSubjects.length===0) return null;
 
-              let kmeSubjectsMap={'국어':[],'수학':[],'영어':[]}, kmeSubjectsFlat=[], otherSubjects=[], hasKmeSubjects=false;
-              if(group.id==='3D'){
-                groupSubjects.forEach(s=>{const nType=normalizeType(s.type,s.name);if(['국어','수학','영어'].includes(nType)){kmeSubjectsMap[nType].push(s);hasKmeSubjects=true;}else otherSubjects.push(s);});
-              } else if(['2A','2B','3A'].includes(group.id)){
-                groupSubjects.forEach(s=>{const nType=normalizeType(s.type,s.name);if(['국어','수학','영어'].includes(nType)){kmeSubjectsFlat.push(s);hasKmeSubjects=true;}else otherSubjects.push(s);});
+              // 이 군에만 걸린 규칙으로 화면 배치 결정 (예: 교과별 필수 택1 상자, 최대 N개 상자)
+              const isGroupOnlyRule=r=>r.scopeExplicit&&r.groupIds.length===1&&r.groupIds[0]===group.id&&ruleAppliesToTrack(r,isScienceTrack);
+              const perTypeRule=preparedRules.find(r=>isGroupOnlyRule(r)&&r.type==='교과별기준'&&r.minCount!=null&&r.categories.length>0);
+              const capRule=!perTypeRule&&preparedRules.find(r=>isGroupOnlyRule(r)&&r.type==='교과기준'&&r.maxCount!=null&&r.categories.length>0);
+              let typeBoxes=[], cappedSubjects=[], otherSubjects=[];
+              if(perTypeRule){
+                typeBoxes=perTypeRule.categories.map(c=>({type:c,subjects:groupSubjects.filter(s=>matchesCategory(s,c))}));
+                otherSubjects=groupSubjects.filter(s=>!perTypeRule.categories.some(c=>matchesCategory(s,c)));
+              } else if(capRule){
+                cappedSubjects=groupSubjects.filter(s=>matchesRule(s,capRule));
+                otherSubjects=groupSubjects.filter(s=>!matchesRule(s,capRule));
               } else { otherSubjects=groupSubjects; }
+              const otherPickLimit=perTypeRule?group.maxPick-perTypeRule.minCount*perTypeRule.categories.length:null;
 
               const renderSubjectCard=(subject)=>{
                 const isSelected=selectedIds.includes(subject.id);
@@ -2080,29 +2014,15 @@ function App() {
                 const showBothRec = showMajorRec && showFieldRec;
                 
                 const isCsat=subject.csat&&subject.csat.trim()!==''&&!/x|-|해당|미출|없음|아님/i.test(subject.csat);
-                const isSharedCampusCard=subject.group==='2E'||subject.group==='2F';
+                const isSharedCampusCard=!!group.isSharedCampus;
                 
-                let isScienceTrackTarget = false;
-                if (isScienceTrack) {
-                  const nType = normalizeType(subject.type, subject.name);
-                  if (subject.group === '3D') {
-                    if (nType === '과학') {
-                      isScienceTrackTarget = true;
-                    }
-                  } else if (['2A', '2B', '2C', '2D', '3A', '3C'].includes(subject.group)) {
-                    const isMentioned = dbConditions.some(cond => {
-                      return cond.includes('과학중점') && cond.includes(subject.group) && cond.includes(subject.name);
-                    });
-                    if (isMentioned && nType !== '제2외국어/한문') isScienceTrackTarget = true;
-                  }
-                }
+                // 과학중점 과정: 해당 군을 콕 집은 과학중점 규칙(지정과목, 최소 이수)에 해당하는 과목에 '과중 대상' 표시
+                const isScienceTrackTarget = isScienceTrack && preparedRules.some(r => r.track==='과학중점' && r.scopeExplicit && r.groupIds.includes(subject.group) && (
+                  (r.type==='지정과목' && inSubjectList(subject.name, r.subjects)) ||
+                  (['교과기준','교과별기준','권장'].includes(r.type) && (r.minCount!=null||r.minCredits!=null) && matchesRule(subject, r))
+                ));
 
-                let displayCardName=subject.name;
-                if(isSharedCampusCard){
-                  if(subject.name.includes('동대부고'))displayCardName=subject.name.replace(/\(동대부고\)/g,'').trim()+' (동국)';
-                  else if(subject.name.includes('해성여고'))displayCardName=subject.name.replace(/\(해성여고\)/g,'').trim()+' (해성)';
-                  else if(subject.name.includes('휘경여고'))displayCardName=subject.name.replace(/\(휘경여고\)/g,'').trim()+' (휘경)';
-                }
+                const displayCardName=subject.school?`${subject.name} (${subject.school})`:subject.name;
 
                 let borderClass='border-2 border-slate-200 hover:border-blue-400';
                 let bgClass='bg-white';
@@ -2154,20 +2074,19 @@ function App() {
                     <h3 className="text-xl lg:text-2xl font-extrabold text-slate-800">{group.name}</h3>
                     <span className={`text-sm lg:text-base font-bold px-3 py-1.5 rounded-lg ${isComplete?'bg-green-100 text-green-700':'bg-red-100 text-red-600'}`}>{isComplete?'✔ 선택 완료':`선택가능 (${group.maxPick-pickedCount})`}</span>
                   </div>
-                  {['2E','2F'].includes(group.id)&&(
+                  {group.notice&&(
                     <div className="bg-yellow-50 text-yellow-800 p-4 rounded-xl mb-5 text-base font-bold flex items-start gap-2 border-2 border-yellow-300 shadow-sm mt-3">
-                      <span>ℹ️</span><span className="leading-relaxed">공유캠퍼스(금요일 또는 주말 운영)는 희망자에 한해 모집시기(3월초)에 해당 학교에 시험이나 면접을 본 후 <span className="text-red-600 underline">합격자만 수강이 가능</span>합니다.</span>
+                      <span>ℹ️</span><span className="leading-relaxed whitespace-pre-line">{group.notice}</span>
                     </div>
                   )}
-                  {group.id==='3D'?(
+                  {perTypeRule?(
                     <div className="flex flex-col gap-6 mt-6 mb-2">
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                        {['국어','수학','영어'].map(type=>{
-                          const subjects=kmeSubjectsMap[type];
+                        {typeBoxes.map(({type,subjects})=>{
                           if(!subjects||subjects.length===0) return null;
                           return (
                             <div key={type} className="relative border-2 border-indigo-400 rounded-2xl p-4 bg-indigo-50/30 flex flex-col">
-                              <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-indigo-700 font-extrabold text-base border border-indigo-200 rounded-md shadow-sm">{type} 필수 택1</span>
+                              <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-indigo-700 font-extrabold text-base border border-indigo-200 rounded-md shadow-sm">{type} 필수 택{perTypeRule.minCount}</span>
                               <div className="grid grid-cols-1 gap-2 mt-3 flex-1">{subjects.map(s=>renderSubjectCard(s))}</div>
                             </div>
                           );
@@ -2175,17 +2094,17 @@ function App() {
                       </div>
                       {otherSubjects.length>0&&(
                         <div className="relative border-2 border-slate-300 rounded-2xl p-4 bg-white mt-3">
-                          <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-slate-700 font-extrabold text-base border border-slate-200 rounded-md shadow-sm">그 외 선택 과목(선택가능 4)</span>
+                          <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-slate-700 font-extrabold text-base border border-slate-200 rounded-md shadow-sm">그 외 선택 과목(선택가능 {otherPickLimit})</span>
                           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3">{otherSubjects.map(s=>renderSubjectCard(s))}</div>
                         </div>
                       )}
                     </div>
-                  ):['2A','2B','3A'].includes(group.id)?(
+                  ):capRule?(
                     <div className="flex flex-col gap-6 mt-6 mb-2">
-                      {hasKmeSubjects&&(
+                      {cappedSubjects.length>0&&(
                         <div className="relative border-2 border-indigo-400 rounded-2xl p-4 bg-indigo-50/30 flex flex-col">
-                          <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-indigo-700 font-extrabold text-base border border-indigo-200 rounded-md shadow-sm">최대 1개</span>
-                          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3 flex-1">{kmeSubjectsFlat.map(s=>renderSubjectCard(s))}</div>
+                          <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-indigo-700 font-extrabold text-base border border-indigo-200 rounded-md shadow-sm">최대 {capRule.maxCount}개</span>
+                          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3 flex-1">{cappedSubjects.map(s=>renderSubjectCard(s))}</div>
                         </div>
                       )}
                       {otherSubjects.length>0&&(
@@ -2213,7 +2132,7 @@ function App() {
           <div className="grid grid-cols-3 md:grid-cols-4 gap-1.5 lg:gap-2 mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2">
             {[
               {id:'planner',icon:'📋',label:'나의 편제표'},
-              {id:'table',icon:'📊',label:'휘경여고 편제표'},
+              {id:'table',icon:'📊',label:`${dbInfo.schoolShort} 편제표`},
               {id:'major',icon:'🗺️',label:'학과 가이드'},
               {id:'subject',icon:'📚',label:'선택과목 가이드'},
               {id:'university',icon:'🏛️',label:'대학별 이수권장'},
@@ -2256,8 +2175,8 @@ function App() {
             {activeTab==='table'&&(
               <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 h-[85vh] min-h-[600px]">
                 <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center shrink-0 mb-4 lg:mb-6 shadow-md">
-                  <h2 className="text-2xl lg:text-4xl font-black mb-2">📊 휘경여고 편제표</h2>
-                  <p className="text-blue-200 text-sm lg:text-xl font-medium mb-4">휘경여자고등학교 2026학년도 입학생 교육과정 편제표입니다.</p>
+                  <h2 className="text-2xl lg:text-4xl font-black mb-2">📊 {dbInfo.schoolShort} 편제표</h2>
+                  <p className="text-blue-200 text-sm lg:text-xl font-medium mb-4">{dbInfo.schoolName} {dbInfo.admissionYear}학년도 입학생 교육과정 편제표입니다.</p>
                   <a href="https://26pyeonjae.edgeone.app/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-white text-blue-900 font-extrabold px-5 py-2.5 rounded-xl hover:bg-blue-50 transition-colors shadow-sm text-base">
                     🔗 새 창에서 크게 보기
                   </a>
@@ -2266,7 +2185,7 @@ function App() {
                   <iframe 
                     src="https://26pyeonjae.edgeone.app/" 
                     className="absolute inset-0 w-full h-full border-0 rounded-xl" 
-                    title="휘경여고 편제표"
+                    title={`${dbInfo.schoolShort} 편제표`}
                   ></iframe>
                 </div>
               </div>
@@ -2458,7 +2377,7 @@ function App() {
                           <div>
                             <h5 className="font-extrabold text-lg lg:text-xl text-blue-800 mb-2">ℹ️ 과목 프로필</h5>
                             <table className="w-full border-collapse text-center text-sm lg:text-base border border-slate-300">
-                              <thead><tr className="bg-blue-100 text-blue-900"><th className="p-2 lg:p-3 border font-bold w-1/3">절대 평가(성취도)</th><th className="p-2 lg:p-3 border font-bold w-1/3">상대 평가</th><th className="p-2 lg:p-3 border font-bold w-1/3">2029 수능 출제</th></tr></thead>
+                              <thead><tr className="bg-blue-100 text-blue-900"><th className="p-2 lg:p-3 border font-bold w-1/3">절대 평가(성취도)</th><th className="p-2 lg:p-3 border font-bold w-1/3">상대 평가</th><th className="p-2 lg:p-3 border font-bold w-1/3">{dbInfo.csatYear} 수능 출제</th></tr></thead>
                               <tbody className="bg-white"><tr><td className="p-2 lg:p-3 border font-medium">{subj.popupData?.evalAbs||'-'}</td><td className="p-2 lg:p-3 border font-medium">{subj.popupData?.evalRel||'-'}</td><td className="p-2 lg:p-3 border font-medium">{subj.csat||'-'}</td></tr></tbody>
                             </table>
                             <div className="text-sm lg:text-base text-slate-700 bg-slate-50 p-4 rounded-lg border mt-3 text-left"><p>• {subj.popupData?.desc||subj.desc||'-'}</p>{subj.popupData?.keywords&&!isInvalidData(subj.popupData.keywords)&&<p className="mt-2">• <span className="font-bold">주요 키워드:</span> {subj.popupData.keywords}</p>}</div>
@@ -2561,16 +2480,9 @@ function App() {
           </div>
           <div className="p-5 max-h-[350px] overflow-y-auto custom-scrollbar">
             <ul className="space-y-4">
-              {evaluatedConditions.filter(c=>c.original.includes('과학중점'))
-                .sort((a,b) => {
-                  const aHasGroup = /2[A-F]|3[A-F]/.test(a.original);
-                  const bHasGroup = /2[A-F]|3[A-F]/.test(b.original);
-                  if (aHasGroup && !bHasGroup) return -1;
-                  if (!aHasGroup && bHasGroup) return 1;
-                  return 0;
-                })
-                .map((item,idx)=>(
-                <li key={idx} className={`flex items-start gap-3 text-base font-bold p-4 rounded-xl bg-white/70 shadow-sm border ${item.status==='pass'?'border-green-300 bg-green-50/80':'border-yellow-200'}`}>
+              {evaluatedConditions.filter(c=>c.track!=='일반')
+                .map((item)=>(
+                <li key={item.key} className={`flex items-start gap-3 text-base font-bold p-4 rounded-xl bg-white/70 shadow-sm border ${item.status==='pass'?'border-green-300 bg-green-50/80':'border-yellow-200'}`}>
                   <span className="mt-0.5">{item.status==='pass'?'✅':'•'}</span>
                   <div className="flex-1 flex flex-col gap-1.5">
                     <div className="flex flex-wrap items-center gap-2">
@@ -2581,7 +2493,7 @@ function App() {
                   </div>
                 </li>
               ))}
-              {evaluatedConditions.filter(c=>c.original.includes('과학중점')).length===0&&(
+              {evaluatedConditions.filter(c=>c.track!=='일반').length===0&&(
                 <li className="text-base text-slate-600">과학중점 과정 관련 조건이 없습니다.</li>
               )}
             </ul>
@@ -2601,16 +2513,9 @@ function App() {
           </div>
           <div className="p-5 max-h-[350px] overflow-y-auto custom-scrollbar">
             <ul className="space-y-4">
-              {evaluatedConditions.filter(c=>!c.original.includes('과학중점'))
-                .sort((a,b) => {
-                  const aHasGroup = /2[A-F]|3[A-F]/.test(a.original);
-                  const bHasGroup = /2[A-F]|3[A-F]/.test(b.original);
-                  if (aHasGroup && !bHasGroup) return -1;
-                  if (!aHasGroup && bHasGroup) return 1;
-                  return 0;
-                })
-                .map((item,idx)=>(
-                <li key={idx} className={`flex items-start gap-3 text-base font-bold p-4 rounded-xl bg-white/70 shadow-sm border ${item.status==='pass'?'border-green-300 bg-green-50/80':'border-orange-200'}`}>
+              {evaluatedConditions.filter(c=>c.track!=='과학중점')
+                .map((item)=>(
+                <li key={item.key} className={`flex items-start gap-3 text-base font-bold p-4 rounded-xl bg-white/70 shadow-sm border ${item.status==='pass'?'border-green-300 bg-green-50/80':'border-orange-200'}`}>
                   <span className="mt-0.5">{item.status==='pass'?'✅':'•'}</span>
                   <div className="flex-1 flex flex-col gap-1.5">
                     <div className="flex flex-wrap items-center gap-2">
