@@ -149,6 +149,11 @@ const SHEET_URLS = {
 };
 const DEFAULT_YEAR = '2027';
 
+// 공통 시트: 학년과 상관없이 함께 쓰는 탭(계열데이터, 학과데이터, 대학별 이수권장과목, 공유캠퍼스, 거점형 선택 교육과정)
+//   비워 두면 입학년도 시트 하나에서 모든 탭을 읽습니다.
+//   같은 이름의 탭이 양쪽에 있으면 입학년도 시트의 탭을 사용합니다.
+const COMMON_SHEET_URL = '';
+
 const URL_PARAMS = new URLSearchParams(window.location.search);
 const ACTIVE_YEAR = SHEET_URLS[URL_PARAMS.get('year')] ? URL_PARAMS.get('year') : DEFAULT_YEAR;
 const CHECK_MODE = URL_PARAMS.get('check') === '1';
@@ -782,14 +787,31 @@ function App() {
       }
     };
 
+    const checkText = (t, label) => {
+      if(!t||t.trim()==='') throw new Error(`${label} 데이터가 비어있습니다.`);
+      if(t.trim().startsWith('<')) throw new Error(`${label} 웹앱에 접근할 수 없습니다. 스크립트 배포 권한을 '모든 사용자'로 설정해주세요.`);
+    };
+
     try {
-      const text = await fetchWithRetry(SHEET_URL);
-      if(!text||text.trim()==='') throw new Error("데이터가 비어있습니다.");
-      if(text.trim().startsWith('<')) throw new Error("웹앱에 접근할 수 없습니다. 스크립트 배포 권한을 '모든 사용자'로 설정해주세요.");
+      // 입학년도 시트 + 공통 시트를 함께 불러와 합치기
+      const [yearText, commonText] = await Promise.all([
+        fetchWithRetry(SHEET_URL),
+        COMMON_SHEET_URL ? fetchWithRetry(`${COMMON_SHEET_URL}?t=${new Date().getTime()}`) : Promise.resolve(null),
+      ]);
+      checkText(yearText, `[${ACTIVE_YEAR} 시트]`);
+      let text = yearText;
+      const mergeNotes = [];
+      if (commonText !== null) {
+        checkText(commonText, '[공통 시트]');
+        const yearObj = JSON.parse(yearText), commonObj = JSON.parse(commonText);
+        Object.keys(commonObj).filter(k => k in yearObj).forEach(k => mergeNotes.push(`'${k}' 탭이 공통 시트와 ${ACTIVE_YEAR} 시트에 모두 있어 ${ACTIVE_YEAR} 시트의 것을 사용합니다.`));
+        mergeNotes.push(`공통 시트 탭: ${Object.keys(commonObj).join(', ')} / ${ACTIVE_YEAR} 시트 탭: ${Object.keys(yearObj).join(', ')}`);
+        text = JSON.stringify({ ...commonObj, ...yearObj });
+      }
 
       let parsedSubjects=[], parsedFields=[], parsedMajors=[], parsedConditions=[], parsedUnivRecs=[], parsedTimetable=[], dataArrays=[];
       let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[];
-      const issues=[], notes=[];
+      const issues=[], notes=[...mergeNotes];
       
       try {
         const jsonData = JSON.parse(text);
