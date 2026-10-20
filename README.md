@@ -12,7 +12,11 @@
 
 | 파일 | 내용 |
 |---|---|
-| `index.html` | 웹페이지 (맨 위 `SHEET_URL`에 Apps Script 주소, `SITE_TITLE`에 제목) |
+| `config.js` | **설정** — 제목, 제작자 표시, 구글 시트(Apps Script) 주소. 이 파일만 고치면 바로 반영 |
+| `src/index.html` | 화면 **원본** 코드 (수정은 여기서) |
+| `index.html` | 학생에게 보이는 페이지 — `src/index.html`을 압축해 **자동으로 만든 파일** (직접 고치지 않음) |
+| `build/build.js`, `package.json` | 압축 도구 (`npm install` → `npm run build`) |
+| `.github/workflows/build.yml` | `src/` 가 바뀌면 GitHub가 `index.html`을 자동으로 다시 만듦 |
 | `apps-script/Code.gs` | 구글 시트의 Apps Script에 붙여 넣을 코드 |
 | `sheet/통합시트_예시.xlsx` | 시트 구성 예시 (2026 실제 자료, 2027 복사본, 2025 빈 틀) |
 
@@ -65,5 +69,12 @@
 
 ## Apps Script 처음 설정 · 수정할 때
 
-- 처음: 시트에서 **확장 프로그램 → Apps Script**를 엽니다. `Code.gs` 내용을 붙여 넣고 **배포 → 새 배포**(유형: 웹 앱, 액세스: 모든 사용자)를 누릅니다. 나온 주소를 `index.html`의 `SHEET_URL`에 넣습니다.
+- 처음: 시트에서 **확장 프로그램 → Apps Script**를 엽니다. `Code.gs` 내용을 붙여 넣고 **배포 → 새 배포**(유형: 웹 앱, 액세스: 모든 사용자)를 누릅니다. 나온 주소를 `config.js`의 `SHEET_URL`에 넣습니다.
+
+## 압축(빌드)에 대하여
+
+- 학생에게 보이는 `index.html`은 화면 코드를 미리 변환·압축한 파일입니다. 소스를 읽기 어렵게 하고, 첫 화면을 빠르게 합니다(브라우저에서 2.8MB 변환 도구를 내려받지 않음).
+- **설정만 바꿀 때**: `config.js`만 고치면 됩니다. 다시 만들 필요가 없습니다.
+- **화면 코드를 바꿀 때**: `src/index.html`을 고치면 GitHub Actions가 `index.html`을 자동으로 다시 만듭니다. 직접 하려면 `npm install` 후 `npm run build`.
+- 원본 확인용 화면: `…/src/index.html` 주소로 열면 압축 전 원본으로 동작합니다(느림).
 - 코드를 수정한 뒤에는 **배포 → 배포 관리 → 연필(수정) → 버전: 새 버전 → 배포** 순서로 합니다. 이렇게 하면 주소가 바뀌지 않습니다.

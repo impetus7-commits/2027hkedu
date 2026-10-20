@@ -1,0 +1,14 @@
+{
+  "name": "2027hkedu",
+  "private": true,
+  "description": "2027 휘경여고 과목 선택 시스템 - src/index.html을 압축해 index.html을 만듭니다",
+  "scripts": {
+    "build": "node build/build.js"
+  },
+  "devDependencies": {
+    "@babel/core": "7.24.7",
+    "@babel/preset-react": "7.24.7",
+    "tailwindcss": "3.4.16",
+    "terser": "5.31.1"
+  }
+}
