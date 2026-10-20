@@ -1830,20 +1830,18 @@ function App() {
   };
   const compareSubjects = compareNames.map(n => n ? uniqueElectiveSubjects.find(x => x.name === n) : null);
 
-  // 권장 과목 만족도: 희망 학과(없으면 계열)의 권장 과목 중 우리 학교에서 배울 수 있는 과목을
-  // 담았거나 학교 지정 과목인 비율
+  // 권장 과목 만족도: 내가 담은 선택 과목 중 희망 계열·학과의 권장 과목에 들어 있는 과목의 비율
+  // (학교 지정 과목은 빼고, 학과를 골랐으면 계열 권장 + 학과 권장을 함께 봄 = 화면의 추천 표시와 같음)
   const recommendFit = useMemo(() => {
     if (selectedField === 'none') return null;
-    const recSet = selectedMajor !== 'none' ? majorRecommendedSet : fieldRecommendedSet;
-    if (!recSet || recSet.size === 0) return null;
-    const recNorm = new Set([...recSet].map(r => normalizeForMatch(r)));
-    const offered = schoolSubjectIndex.filter(o => recNorm.has(normalizeForMatch(o.name)));
-    if (offered.length === 0) return null;
-    const isTaken = o => o.kind === 'mandatory' || o.entries.some(e => selectedIds.includes(e.id));
-    const taken = offered.filter(isTaken);
-    return { pct: Math.round(taken.length / offered.length * 100), taken: taken.length, total: offered.length,
-             missing: offered.filter(o => !isTaken(o)).map(o => o.name), basis: selectedMajor !== 'none' ? '학과' : '계열' };
-  }, [selectedField, selectedMajor, majorRecommendedSet, fieldRecommendedSet, schoolSubjectIndex, selectedIds]);
+    const recNorm = new Set([...fieldRecommendedSet, ...(selectedMajor !== 'none' ? majorRecommendedSet : [])].map(r => normalizeForMatch(r)));
+    if (recNorm.size === 0) return null;
+    const mine = [...new Map(selectedSubjects.map(x => [normalizeForMatch(x.name), x])).values()];
+    if (mine.length === 0) return { pct: 0, matched: 0, total: 0, outside: [], basis: selectedMajor !== 'none' ? '계열·학과' : '계열' };
+    const inRec = mine.filter(x => recNorm.has(normalizeForMatch(x.name)));
+    return { pct: Math.round(inRec.length / mine.length * 100), matched: inRec.length, total: mine.length,
+             outside: mine.filter(x => !recNorm.has(normalizeForMatch(x.name))).map(x => x.name), basis: selectedMajor !== 'none' ? '계열·학과' : '계열' };
+  }, [selectedField, selectedMajor, majorRecommendedSet, fieldRecommendedSet, selectedSubjects]);
   const fitColor = (p) => p >= 80 ? '#15803d' : p >= 50 ? '#b45309' : '#b91c1c';
 
   // 편제표 렌더링
@@ -1867,11 +1865,11 @@ function App() {
             <span><span className="font-bold text-slate-600">희망 계열:</span> <b className="text-blue-900">{selectedField!=='none'?selectedField:'선택 안 함'}</b></span>
             <span><span className="font-bold text-slate-600">희망 학과:</span> <b className="text-blue-900">{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</b></span>
             {recommendFit?(
-              <span className="inline-flex items-center gap-1.5" title={recommendFit.missing.length?`아직 선택하지 않은 권장 과목: ${recommendFit.missing.join(', ')}`:'권장 과목을 모두 선택했습니다'}>
-                <span className="font-bold text-slate-600">{recommendFit.basis} 권장 과목 만족도:</span>
+              <span className="inline-flex items-center gap-1.5" title={recommendFit.outside.length?`권장 과목이 아닌 선택 과목: ${recommendFit.outside.join(', ')}`:'선택한 과목이 모두 권장 과목입니다'}>
+                <span className="font-bold text-slate-600">권장 과목 만족도:</span>
                 <b style={{color:fitColor(recommendFit.pct)}}>{recommendFit.pct}%</b>
                 <span className="inline-block w-16 h-2 rounded-full bg-slate-200 overflow-hidden align-middle print:w-10"><span className="block" style={{width:`${recommendFit.pct}%`,borderTop:`8px solid ${fitColor(recommendFit.pct)}`}}></span></span>
-                <span className="text-xs lg:text-sm text-slate-500 print:text-[8pt]">({recommendFit.taken}/{recommendFit.total}과목)</span>
+                <span className="text-xs lg:text-sm text-slate-500 print:text-[8pt]">{recommendFit.total?`(선택 ${recommendFit.total}과목 중 권장 ${recommendFit.matched}과목)`:'(아직 담은 과목이 없습니다)'}</span>
               </span>
             ):(
               <span className="text-sm text-slate-400">권장 과목 만족도: 희망 계열을 고르면 계산됩니다</span>
