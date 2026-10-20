@@ -31,15 +31,15 @@
     }
     .animate-sparkle-pink { animation: sparkle-pink 2s infinite; }
     
-    @keyframes sparkle-green {
-      0%, 100% { border-color: #4ade80; box-shadow: 0 0 15px rgba(74,222,128,0.4); }
-      50% { border-color: #16a34a; box-shadow: 0 0 25px rgba(74,222,128,0.8); }
+    @keyframes sparkle-orange {
+      0%, 100% { border-color: #fb923c; box-shadow: 0 0 15px rgba(249,115,22,0.4); }
+      50% { border-color: #ea580c; box-shadow: 0 0 25px rgba(249,115,22,0.8); }
     }
-    .animate-sparkle-green { animation: sparkle-green 2s infinite; }
+    .animate-sparkle-orange { animation: sparkle-orange 2s infinite; }
     
     @keyframes sparkle-blue {
-      0%, 100% { border-color: #60a5fa; box-shadow: 0 0 15px rgba(59,130,246,0.4); }
-      50% { border-color: #2563eb; box-shadow: 0 0 25px rgba(59,130,246,0.8); }
+      0%, 100% { border-color: #00AE58; box-shadow: 0 0 15px rgba(0,174,88,0.4); }
+      50% { border-color: #00703C; box-shadow: 0 0 25px rgba(0,174,88,0.8); }
     }
     .animate-sparkle-blue { animation: sparkle-blue 2s infinite; }
     
@@ -70,9 +70,9 @@
       #print-btn, #back-btn { display: none !important; }
       
       .bg-gray-50  { background-color: #f9fafb !important; }
-      .bg-blue-50  { background-color: #eff6ff !important; }
-      .bg-blue-100 { background-color: #dbeafe !important; }
-      .bg-indigo-50{ background-color: #eef2ff !important; }
+      .bg-blue-50  { background-color: #F4FBF6 !important; }
+      .bg-blue-100 { background-color: #E6F6EC !important; }
+      .bg-indigo-50{ background-color: #F4FBF6 !important; }
       .bg-purple-50{ background-color: #faf5ff !important; }
       .bg-orange-50{ background-color: #fff7ed !important; }
       .bg-green-50 { background-color: #f0fdf4 !important; }
@@ -108,14 +108,18 @@
   </style>
 
   <script>
+    // 디자인: 걸스카우트 그린 계열 (주색 #00703C, 포인트 #00AE58)
+    const GREEN = { 50: '#F4FBF6', 100: '#E6F6EC', 200: '#B8E6C9', 300: '#7FD3A3', 400: '#00AE58', 500: '#00994D', 600: '#00703C', 700: '#005F33', 800: '#00512B', 900: '#003D20', 950: '#00261A' };
     tailwind.config = {
       theme: {
         extend: {
           colors: {
+            blue: GREEN,
+            indigo: GREEN,
             brand: {
-              navy: '#1e3a8a',
-              blue: '#3b82f6',
-              lightBlue: '#eff6ff',
+              navy: '#003D20',
+              blue: '#00994D',
+              lightBlue: '#F4FBF6',
               emerald: '#10b981',
               darkRed: '#991b1b'
             }
@@ -125,7 +129,7 @@
     }
   </script>
 </head>
-<body class="bg-slate-50 text-slate-800 selection:bg-blue-500 selection:text-white">
+<body class="text-slate-800 selection:bg-blue-500 selection:text-white" style="background:#F4FBF6">
 <div id="root"></div>
 
 <script type="text/babel">
@@ -1428,7 +1432,7 @@ function App() {
         </div>
         <div className="hidden xl:flex items-center gap-2 text-xs lg:text-sm font-bold bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm flex-wrap print:flex print:w-full print:border-none print:shadow-none print:p-0 print:gap-1.5 print:mt-1 print:justify-start">
           <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>{CSAT_SHORT} 출제</span>
-          <span className="flex items-center gap-1 text-green-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-white border-[3px] border-green-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>계열 추천</span>
+          <span className="flex items-center gap-1 text-orange-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-white border-[3px] border-orange-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>계열 추천</span>
           <span className="flex items-center gap-1 text-pink-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-pink-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>학과 추천</span>
           <span className="flex items-center gap-1 text-blue-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-blue-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>공통 추천</span>
           <span className="flex items-center gap-1 text-purple-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-purple-100 border-[3px] border-purple-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>공유캠퍼스</span>
@@ -1473,7 +1477,7 @@ function App() {
                         if(selectedField!=='none'){
                           if(showBothRec)borderClass='border-[3px] border-blue-500 shadow-sm';
                           else if(isMajorRec)borderClass='border-[3px] border-pink-400 shadow-sm';
-                          else if(isFieldRec)borderClass='border-[3px] border-green-500 shadow-sm';
+                          else if(isFieldRec)borderClass='border-[3px] border-orange-500 shadow-sm';
                         }
 
                         return (
@@ -1559,13 +1563,13 @@ function App() {
       cardTitle:  { display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'2px solid #d1d5db', paddingBottom:'12px', marginBottom:'16px' },
       tblWrap:    { overflowX:'auto', marginBottom:'12px' },
       tbl:        { width:'100%', borderCollapse:'collapse', fontSize:'0.75rem' },
-      thBlue:     { padding:'8px', border:'1px solid #d1d5db', fontWeight:700, background:'#dbeafe', color:'#1e3a8a', textAlign:'center' },
-      thIndigo:   { padding:'8px', border:'1px solid #d1d5db', fontWeight:700, background:'#e0e7ff', color:'#312e81', textAlign:'center' },
+      thBlue:     { padding:'8px', border:'1px solid #d1d5db', fontWeight:700, background:'#E6F6EC', color:'#003D20', textAlign:'center' },
+      thIndigo:   { padding:'8px', border:'1px solid #d1d5db', fontWeight:700, background:'#E6F6EC', color:'#003D20', textAlign:'center' },
       td:         { padding:'8px', border:'1px solid #d1d5db', whiteSpace:'pre-wrap', textAlign:'left', verticalAlign:'top' },
       tdCenter:   { padding:'8px', border:'1px solid #d1d5db', textAlign:'center', verticalAlign:'middle' },
       desc:       { fontSize:'0.75rem', color:'#374151', background:'white', padding:'12px', borderRadius:'8px', border:'1px solid #e5e7eb', marginTop:'8px', textAlign:'left' },
       badge:      { fontSize:'0.7rem', fontWeight:700, color:'#4b5563', background:'#e5e7eb', padding:'2px 8px', borderRadius:'6px' },
-      badgeBlue:  { fontSize:'0.7rem', fontWeight:700, color:'#1d4ed8', background:'#dbeafe', padding:'2px 8px', borderRadius:'6px' },
+      badgeBlue:  { fontSize:'0.7rem', fontWeight:700, color:'#005F33', background:'#E6F6EC', padding:'2px 8px', borderRadius:'6px' },
       ulBox:      { background:'white', padding:'12px', borderRadius:'8px', border:'1px solid #e5e7eb', listStyle:'none', margin:0 },
       guideBox:   { border:'1px solid #d1d5db', borderRadius:'12px', padding:'16px', background:'#f9fafb', display:'flex', flexDirection:'column', gap:'16px', pageBreakInside:'avoid', breakInside:'avoid' },
     };
@@ -1577,7 +1581,7 @@ function App() {
             <h2 style={{fontSize:'1.25rem',fontWeight:900,color:'#1f2937'}}>나만의 선택과목 보고서 (인쇄 미리보기)</h2>
             <div style={{display:'flex',gap:'8px'}}>
               <button id="back-btn" onClick={()=>setActiveTab('planner')} style={{padding:'8px 16px',background:'#e5e7eb',color:'#374151',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer'}}>← 돌아가기</button>
-              <button id="print-btn" onClick={()=>window.print()} style={{padding:'8px 24px',background:'#4f46e5',color:'white',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>🖨️ 출력 / PDF 저장</button>
+              <button id="print-btn" onClick={()=>window.print()} style={{padding:'8px 24px',background:'#00703C',color:'white',fontWeight:700,borderRadius:'8px',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>🖨️ 출력 / PDF 저장</button>
             </div>
           </div>
 
@@ -1587,7 +1591,7 @@ function App() {
             </div>
 
             <div className="report-section" style={{marginBottom:'0'}}>
-              <h3 style={{...RS.secTitle, borderLeftColor:'#2563eb', color:'#1e3a8a'}}>📋 1. 나의 교육과정 편제표</h3>
+              <h3 style={{...RS.secTitle, borderLeftColor:'#00703C', color:'#003D20'}}>📋 1. 나의 교육과정 편제표</h3>
               <div style={{border:'2px solid #d1d5db',borderRadius:'12px',overflow:'hidden',background:'white',padding:'8px'}} className="print:p-1 print:border-slate-800">
                 {renderTimetable()}
               </div>
@@ -1595,11 +1599,11 @@ function App() {
           </div>
 
           <div className="report-section print-tight-section" style={{marginBottom:'32px'}}>
-            <h3 style={{...RS.secTitle, borderLeftColor:'#7c3aed', color:'#3730a3'}}>🗺️ 2. 맞춤형 진로 가이드</h3>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#7c3aed', color:'#00512B'}}>🗺️ 2. 맞춤형 진로 가이드</h3>
             <div style={RS.guideBox} className="print-tight-guide">
               <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                 <span style={{fontWeight:700,color:'#374151',minWidth:'72px'}}>희망 계열:</span>
-                <span style={{fontWeight:900,color:'#4338ca',fontSize:'1.1rem'}}>{selectedField!=='none'?selectedField:'선택 안 함'}</span>
+                <span style={{fontWeight:900,color:'#005F33',fontSize:'1.1rem'}}>{selectedField!=='none'?selectedField:'선택 안 함'}</span>
               </div>
               {selectedField!=='none'&&dbFieldDetails[selectedField]&&(
                 <div style={RS.tblWrap}>
@@ -1618,7 +1622,7 @@ function App() {
 
               <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'8px'}}>
                 <span style={{fontWeight:700,color:'#374151',minWidth:'72px'}}>희망 학과:</span>
-                <span style={{fontWeight:900,color:'#4338ca',fontSize:'1.1rem'}}>{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</span>
+                <span style={{fontWeight:900,color:'#005F33',fontSize:'1.1rem'}}>{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</span>
               </div>
               {selectedMajor!=='none'&&dbDepartmentDetails[selectedMajor]&&(
                 <div style={RS.tblWrap}>
@@ -1692,7 +1696,7 @@ function App() {
                   </div>
                   
                   <div style={{marginBottom:'12px'}}>
-                    <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#1d4ed8',marginBottom:'8px'}}>ℹ️ 과목 프로필</h5>
+                    <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#005F33',marginBottom:'8px'}}>ℹ️ 과목 프로필</h5>
                     <div style={RS.tblWrap}>
                       <table style={RS.tbl} className="print-tight-table">
                         <thead>
@@ -1721,7 +1725,7 @@ function App() {
 
                   {lvLearn.length>0&&(
                     <div style={{marginBottom:'12px'}}>
-                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#1d4ed8',marginBottom:'8px'}}>💡 무엇을 배울 수 있나요?</h5>
+                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#005F33',marginBottom:'8px'}}>💡 무엇을 배울 수 있나요?</h5>
                       <div style={RS.tblWrap}>
                         <table style={RS.tbl} className="print-tight-table">
                           <thead>
@@ -1733,8 +1737,8 @@ function App() {
                           </thead>
                           <tbody style={{background:'white'}}>
                             {lvLearn.map((l,i)=>(
-                              <tr key={i} style={{borderBottom:'1px solid #dbeafe'}}>
-                                <td style={{...RS.tdCenter,fontWeight:800,background:'#eff6ff'}}>{l.area}</td>
+                              <tr key={i} style={{borderBottom:'1px solid #E6F6EC'}}>
+                                <td style={{...RS.tdCenter,fontWeight:800,background:'#F4FBF6'}}>{l.area}</td>
                                 <td style={RS.td}>{l.concept}</td>
                                 <td style={RS.td}>{l.act}</td>
                               </tr>
@@ -1747,7 +1751,7 @@ function App() {
 
                   {lvAdv.length>0&&(
                     <div style={{marginBottom:'12px'}}>
-                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#1d4ed8',marginBottom:'8px'}}>💬 선배가 들려주는 심화 학습 활동(예시)</h5>
+                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#005F33',marginBottom:'8px'}}>💬 선배가 들려주는 심화 학습 활동(예시)</h5>
                       <div style={RS.tblWrap}>
                         <table style={RS.tbl} className="print-tight-table">
                           <thead>
@@ -1759,8 +1763,8 @@ function App() {
                           </thead>
                           <tbody style={{background:'white'}}>
                             {lvAdv.map((a,i)=>(
-                              <tr key={i} style={{borderBottom:'1px solid #dbeafe'}}>
-                                <td style={{...RS.tdCenter,fontWeight:800,background:'#eff6ff'}}>{a.int}</td>
+                              <tr key={i} style={{borderBottom:'1px solid #E6F6EC'}}>
+                                <td style={{...RS.tdCenter,fontWeight:800,background:'#F4FBF6'}}>{a.int}</td>
                                 <td style={RS.td}>{a.topic}</td>
                                 <td style={RS.td}>{a.case}</td>
                               </tr>
@@ -1773,11 +1777,11 @@ function App() {
 
                   {lvRec.length>0&&(
                     <div>
-                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#1d4ed8',marginBottom:'8px'}}>👍 이런 학생에게 추천해요!</h5>
+                      <h5 style={{fontSize:'0.95rem',fontWeight:800,color:'#005F33',marginBottom:'8px'}}>👍 이런 학생에게 추천해요!</h5>
                       <ul style={RS.ulBox}>
                         {lvRec.map((r,i)=>(
                           <li key={i} style={{display:'flex',gap:'8px',alignItems:'flex-start',marginTop:i>0?'6px':0}}>
-                            <span style={{color:'#2563eb',fontWeight:900}}>•</span>
+                            <span style={{color:'#00703C',fontWeight:900}}>•</span>
                             <span style={{lineHeight:1.6,fontWeight:500,fontSize:'0.8rem'}}>{r}</span>
                           </li>
                         ))}
@@ -1920,7 +1924,7 @@ function App() {
                       {popupRecommenders.map((rec, i) => (
                         <tr key={i} className="border-b border-blue-100 last:border-0 hover:bg-blue-50/50">
                           <td className="p-2 border-r border-blue-200 text-center font-bold">
-                            <span className={`px-2 py-0.5 rounded-md ${rec.type === '공통 추천' ? 'bg-blue-100 text-blue-700' : rec.type === '계열 추천' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>{rec.type}</span>
+                            <span className={`px-2 py-0.5 rounded-md ${rec.type === '공통 추천' ? 'bg-blue-100 text-blue-700' : rec.type === '계열 추천' ? 'bg-orange-100 text-orange-700' : 'bg-pink-100 text-pink-700'}`}>{rec.type}</span>
                           </td>
                           <td className="p-2 border-r border-blue-200 text-center font-bold text-slate-800">{rec.field}</td>
                           <td className="p-2 text-center font-medium text-slate-700">{rec.major}</td>
@@ -1943,9 +1947,9 @@ function App() {
       )}
 
       {/* 헤더 */}
-      <header className="mb-4 bg-white px-4 py-3 lg:px-6 lg:py-4 rounded-2xl shadow-sm border-l-[8px] border-blue-950 flex flex-col relative z-[250] shrink-0 no-print">
+      <header className="mb-4 bg-white px-4 py-3 lg:px-6 lg:py-4 rounded-2xl shadow-sm border-l-[8px] border-b-4 border-blue-950 border-b-blue-400 flex flex-col relative z-[250] shrink-0 no-print">
         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 lg:gap-4">
-          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight">{SITE_TITLE}</h1>
+          <h1 className="text-2xl lg:text-3xl lg:mb-1 font-black text-slate-900 tracking-tight break-keep">{SITE_TITLE}</h1>
           <span className="text-2xl lg:text-3xl font-black text-blue-700 ml-1 tracking-tight">{gradeLabelOf(dbInfo.admissionYear).replace('현재 ','')}</span>
           {yearChoices.length>1&&(
             <label className="no-print flex items-center gap-1.5 text-base font-bold text-slate-700">
@@ -2080,8 +2084,8 @@ function App() {
                 <div className="text-slate-700 font-extrabold text-sm lg:text-base bg-indigo-50 px-4 py-3 rounded-xl flex flex-col w-full shadow-sm border border-indigo-200 mt-2">
                   <div className="flex items-center gap-2 mb-2"><span>ℹ️</span><span>하단 목록에서 추천 과목을 확인하세요!</span></div>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 mt-1 sm:ml-6">
-                    <span className="text-green-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-green-400 rounded-full inline-block animate-pulse"></span> 녹색: 계열 추천</span>
-                    {selectedMajor!=='none'&&<><span className="text-pink-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-pink-400 rounded-full inline-block animate-pulse"></span> 핑크색: 학과 추천</span><span className="text-blue-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-blue-400 rounded-full inline-block animate-pulse"></span> 파란색: 공통 추천</span></>}
+                    <span className="text-orange-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-orange-400 rounded-full inline-block animate-pulse"></span> 주황: 계열 추천</span>
+                    {selectedMajor!=='none'&&<><span className="text-pink-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-pink-400 rounded-full inline-block animate-pulse"></span> 핑크색: 학과 추천</span><span className="text-blue-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-blue-400 rounded-full inline-block animate-pulse"></span> 초록색: 공통 추천</span></>}
                     {isScienceTrack&&<span className="text-teal-600 flex items-center gap-1.5 text-sm lg:text-base"><span className="w-3 h-3 bg-teal-500 rounded-full inline-block animate-pulse"></span> 청록색: 과중 대상</span>}
                   </div>
                 </div>
@@ -2162,13 +2166,13 @@ function App() {
                     borderClass='border-[3px] border-slate-500 shadow-md';
                     bgClass='bg-slate-300';
                   }
-                } else if(showBothRec) borderClass='border-[3px] border-blue-500 shadow-[0_0_12px_rgba(59,130,246,0.6)] animate-sparkle-blue';
+                } else if(showBothRec) borderClass='border-[3px] border-blue-500 shadow-[0_0_12px_rgba(0,174,88,0.6)] animate-sparkle-blue';
                 else if(showMajorRec) borderClass='border-2 border-pink-400 shadow-[0_0_8px_rgba(236,72,153,0.3)] animate-sparkle-pink';
-                else if(showFieldRec) borderClass='border-2 border-green-400 shadow-[0_0_8px_rgba(74,222,128,0.3)] animate-sparkle-green';
+                else if(showFieldRec) borderClass='border-2 border-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.3)] animate-sparkle-orange';
 
                 return (
                   <div key={subject.id} className={`relative p-2 lg:p-3 rounded-xl transition-all duration-300 flex flex-col group ${bgClass} ${borderClass}`}>
-                    {showFieldRec&&<span className="absolute -top-3 -left-1 bg-green-500 text-white text-[0.7rem] lg:text-[0.75rem] font-bold px-2 py-1 rounded-full shadow-lg z-10">✦ 계열 추천</span>}
+                    {showFieldRec&&<span className="absolute -top-3 -left-1 bg-orange-500 text-white text-[0.7rem] lg:text-[0.75rem] font-bold px-2 py-1 rounded-full shadow-lg z-10">✦ 계열 추천</span>}
                     {showMajorRec&&<span className="absolute -top-3 -right-1 bg-pink-500 text-white text-[0.7rem] lg:text-[0.75rem] font-bold px-2 py-1 rounded-full shadow-lg z-10">✦ 학과 추천</span>}
                     <div className="flex flex-col items-start mb-2 mt-1">
                       {subject.type&&<span className="inline-block bg-slate-200 text-slate-700 text-[0.7rem] lg:text-[0.8rem] font-bold px-1.5 py-0.5 rounded mb-1">{subject.type}</span>}
@@ -2537,7 +2541,7 @@ function App() {
                                     {guideRecommenders.map((rec, i) => (
                                       <tr key={i} className="border-b border-blue-100 last:border-0 hover:bg-blue-50/50">
                                         <td className="p-2 lg:p-3 border-r border-blue-200 text-center font-bold">
-                                          <span className={`px-2 lg:px-3 py-1 rounded-md whitespace-nowrap ${rec.type === '공통 추천' ? 'bg-blue-100 text-blue-700' : rec.type === '계열 추천' ? 'bg-green-100 text-green-700' : 'bg-pink-100 text-pink-700'}`}>{rec.type}</span>
+                                          <span className={`px-2 lg:px-3 py-1 rounded-md whitespace-nowrap ${rec.type === '공통 추천' ? 'bg-blue-100 text-blue-700' : rec.type === '계열 추천' ? 'bg-orange-100 text-orange-700' : 'bg-pink-100 text-pink-700'}`}>{rec.type}</span>
                                         </td>
                                         <td className="p-2 lg:p-3 border-r border-blue-200 text-center font-bold text-slate-800">{rec.field}</td>
                                         <td className="p-2 lg:p-3 text-center font-medium text-slate-700">{rec.major}</td>
