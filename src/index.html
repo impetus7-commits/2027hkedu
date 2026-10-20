@@ -3207,9 +3207,8 @@ function App() {
                       <div className="rounded-2xl border-2 border-slate-200 p-4">
                         <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목{jobInfo.ai&&<span className="ml-2 text-sm font-black text-red-700">— AI추천 (주의!! 상담 및 고민 필요)</span>}</div>
                         <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep"><b className="text-blue-800">왜?</b>는 이 직업의 어떤 면 때문에 필요한지, <b className="text-green-700">무엇을?</b>은 그 과목에서 배우는 내용입니다. 괄호 안은 개설 학기(2-1학기 = 2학년 1학기), <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
-                        {jobInfo.matched.length?(
-                          <div className="flex flex-col gap-2">
-                            {jobInfo.matched.map(m=>{
+                        {(()=>{
+                          const renderReasonRow=(m)=>{
                               const [aspect, learn] = (m.reason||'').split(/\s*→\s*/);
                               return (
                                 <div key={m.name} className="flex flex-col lg:flex-row lg:items-start gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50">
@@ -3221,9 +3220,20 @@ function App() {
                                     </div>
                                 </div>
                               );
-                            })}
-                          </div>
-                        ):<p className="text-sm text-slate-500">우리 학교 과목명과 맞는 과목을 찾지 못했습니다.</p>}
+                          };
+                          const electives=jobInfo.matched.filter(m=>m.kind!=='mandatory'), required=jobInfo.matched.filter(m=>m.kind==='mandatory');
+                          if(!jobInfo.matched.length) return <p className="text-sm text-slate-500">우리 학교 과목명과 맞는 과목을 찾지 못했습니다.</p>;
+                          return (<>
+                            {electives.length>0&&<div className="flex flex-col gap-2">{electives.map(renderReasonRow)}</div>}
+                            {required.length>0&&(
+                              <div className="mt-4">
+                                <div className="font-black text-green-800 mb-1 break-keep">📌 모두 배우는 지정 과목도 이 직업과 이어져요</div>
+                                <p className="text-xs lg:text-sm text-slate-500 mb-2 break-keep">고르지 않아도 모두 듣는 과목입니다. 이 직업에 왜 필요한지 알고 들으면 수업이 더 의미 있어져요.</p>
+                                <div className="flex flex-col gap-2">{required.map(renderReasonRow)}</div>
+                              </div>
+                            )}
+                          </>);
+                        })()}
                         {jobInfo.notOffered.length>0&&<p className="mt-3 text-xs lg:text-sm text-slate-500 break-keep"><b>우리 학교에 없는 과목:</b> {jobInfo.notOffered.join(', ')} <span className="text-slate-400">(공동교육과정·온라인학교 등으로 들을 수 있는지 담임 선생님께 문의하세요)</span></p>}
                       </div>
                       <button onClick={()=>goTab('major')} className="self-start px-4 py-2 rounded-xl bg-white border-2 border-blue-400 text-blue-800 font-bold">🗺️ 관련 학과도 살펴보기 → 학과 가이드</button>
