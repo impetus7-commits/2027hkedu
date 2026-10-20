@@ -502,6 +502,37 @@ const getAddViolation = (rule, subject, nextSelected, ctx) => {
   }
 };
 
+// ── 대학별 이수권장과목 도우미 ──
+// "기계공학부, 전기정보공학부(전자전공)" → 괄호 안 쉼표는 나누지 않음
+const splitUnits = (text) => {
+  const out = []; let depth = 0, buf = '';
+  for (const ch of String(text || '')) {
+    if (ch === '(' || ch === '（') depth++;
+    if (ch === ')' || ch === '）') depth = Math.max(0, depth - 1);
+    if ((ch === ',' || ch === '，') && depth === 0) { if (buf.trim()) out.push(buf.trim()); buf = ''; } else buf += ch;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
+};
+// "[수학] (핵심) 대수, 미적분Ⅰ (권장) 기하" → { subj:'수학', core:'대수, 미적분Ⅰ', rec:'기하', other:'' }
+const parseUnivRec = (text) => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+  const m = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+  const rest = m ? m[2] : line;
+  const core = ((rest.match(/\(핵심\)\s*(.*?)(?=\(권장\)|$)/) || [])[1] || '').trim();
+  const rec = ((rest.match(/\(권장\)\s*(.*?)(?=\(핵심\)|$)/) || [])[1] || '').trim();
+  return { subj: m ? m[1] : '', core, rec, other: core || rec ? '' : rest };
+});
+const normLoose = (s) => String(s || '').replace(/\s+/g, '').replace(/Ⅰ/g, 'I').replace(/Ⅱ/g, 'II').replace(/Ⅲ/g, 'III').toUpperCase();
+// 권장 문장에 나오는 우리 학교 과목 찾기 (긴 이름부터 찾아 '화학 반응의 세계' 속 '화학'은 따로 세지 않음)
+const findSubjectsInText = (text, subjects) => {
+  let t = normLoose(text); const found = [];
+  [...subjects].sort((a, b) => normLoose(b.name).length - normLoose(a.name).length).forEach(s => {
+    const n = normLoose(s.name);
+    if (n.length >= 2 && t.includes(n)) { found.push(s); t = t.split(n).join('|'); }
+  });
+  return found;
+};
+
 // 규칙 안내문 속 군 ID(2A 등)를 학생에게 보이는 이름(A 등)으로 바꾸기
 const replaceGroupIds = (text, groups) => {
   if (!text || groups.length === 0) return text || '';
@@ -672,6 +703,7 @@ function App() {
   const [dbFieldDetails, setDbFieldDetails] = useState({});
   const [dbDepartmentDetails, setDbDepartmentDetails] = useState({});
   const [dbUnivData, setDbUnivData] = useState([]);
+  const [univSel, setUnivSel] = useState({ univ: '', college: '', unit: '' });
   const [dbSubjects, setDbSubjects] = useState([]);
   const [dbMandatory, setDbMandatory] = useState(DEFAULT_MANDATORY_SUBJECTS);
   const [dbTimetableSheet, setDbTimetableSheet] = useState([]);
@@ -1326,6 +1358,39 @@ function App() {
 
   const popupRecommenders = useMemo(() => getRecommenders(infoModalSubject), [infoModalSubject, dbMajors]);
   const guideRecommenders = useMemo(() => getRecommenders(guideSubjectDetails), [guideSubjectDetails, dbMajors]);
+
+  // 대학별 이수권장과목: 대학 → 단과대학/계열 → 학과/모집단위
+  const univUnits = useMemo(() => {
+    const list = [];
+    dbUnivData.forEach((r, i) => {
+      const units = /제외|전공 분야|^\s*$/.test(r.dept) ? [r.dept] : splitUnits(r.dept);
+      units.forEach(u => list.push({ univ: r.univ, college: r.college, unit: u, row: r, rowKey: i }));
+    });
+    return list;
+  }, [dbUnivData]);
+  const univOptions = useMemo(() => [...new Set(univUnits.map(x => x.univ))], [univUnits]);
+  const pickOnly = (opts, v) => (opts.includes(v) ? v : opts.length === 1 ? opts[0] : '');
+  const univChosen = pickOnly(univOptions, univSel.univ);
+  const collegeOptions = useMemo(() => [...new Set(univUnits.filter(x => x.univ === univChosen).map(x => x.college))], [univUnits, univChosen]);
+  const collegeChosen = pickOnly(collegeOptions, univSel.college);
+  const unitOptions = useMemo(() => univUnits.filter(x => x.univ === univChosen && x.college === collegeChosen), [univUnits, univChosen, collegeChosen]);
+  const unitChosen = pickOnly(unitOptions.map(x => x.unit), univSel.unit);
+  const univResult = unitOptions.find(x => x.unit === unitChosen) || null;
+  const univResultInfo = useMemo(() => {
+    if (!univResult) return null;
+    const text = univResult.row.rec || univResult.row.core || '';
+    const lines = parseUnivRec(text);
+    const coreText = lines.map(l => l.core).join(' ');
+    const schoolSubjects = [...uniqueElectiveSubjects.map(s => ({ name: s.name, kind: 'elective', id: s.id })),
+      ...Object.values(dbMandatory).flat().map(m => ({ name: m.name, kind: 'mandatory' }))];
+    const seen = new Set();
+    const matched = findSubjectsInText(text, schoolSubjects).filter(s => { const k = normLoose(s.name); if (seen.has(k)) return false; seen.add(k); return true; })
+      .map(s => ({ ...s, isCore: normLoose(coreText).includes(normLoose(s.name)),
+                   isSelected: s.kind === 'mandatory' || selectedSubjects.some(x => normLoose(x.name) === normLoose(s.name)) }))
+      .sort((a, b) => (b.isCore - a.isCore) || (normLoose(text).indexOf(normLoose(a.name)) - normLoose(text).indexOf(normLoose(b.name))));
+    const sameRow = univUnits.filter(x => x.rowKey === univResult.rowKey).map(x => x.unit);
+    return { lines, matched, sameRow };
+  }, [univResult, uniqueElectiveSubjects, dbMandatory, selectedSubjects, univUnits]);
 
   // 실시간 조건 검증 엔진 ([규칙] 탭 기반)
   const mandatoryList = useMemo(() => Object.values(dbMandatory).flat(), [dbMandatory]);
@@ -2551,21 +2616,83 @@ function App() {
             )}
 
             {activeTab==='university'&&(
-              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 h-[85vh] min-h-[600px]">
-                <div className="bg-teal-900 text-white p-4 lg:p-6 rounded-2xl text-center shrink-0 mb-4 lg:mb-6 shadow-md">
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px]">
+                <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center shrink-0 mb-4 lg:mb-6 shadow-md">
                   <h2 className="text-2xl lg:text-4xl font-black mb-2">🏛️ 대학별 이수권장과목</h2>
-                  <p className="text-teal-200 text-sm lg:text-xl font-medium mb-4">주요 대학 및 전공별 핵심/권장 이수 과목 안내입니다.</p>
-                  <a href="https://isugwamok.edgeone.app/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-yellow-400 text-teal-900 font-extrabold px-5 py-2.5 rounded-xl hover:bg-yellow-300 transition-colors shadow-sm text-base border-2 border-yellow-500">
-                    🔗 새 창에서 이수권장과목 바로가기 (빈 화면일 경우 클릭)
-                  </a>
+                  <p className="text-blue-100 text-sm lg:text-lg font-medium break-keep">대학 → 단과대학/계열 → 학과/모집단위를 고르면 권장 이수 과목을 보여줍니다.</p>
                 </div>
-                <div className="flex-1 border-2 border-slate-200 rounded-xl bg-white relative shadow-inner overflow-hidden">
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 z-0 p-4 text-center">
-                     <p className="text-base lg:text-lg font-bold mb-2">해당 사이트의 보안 정책으로 화면이 보이지 않을 수 있습니다.</p>
-                     <p className="text-sm lg:text-base">위의 <strong className="text-teal-700">'새 창에서 바로가기'</strong> 버튼을 이용해 주세요.</p>
-                  </div>
-                  <iframe src="https://isugwamok.edgeone.app/" className="absolute inset-0 w-full h-full border-0 z-10 bg-transparent rounded-xl" title="대학별 이수권장과목"></iframe>
-                </div>
+                {univUnits.length===0?(
+                  <div className="p-8 text-center text-slate-500 font-bold border-2 border-dashed border-slate-300 rounded-2xl">시트의 [대학별 이수권장과목] 탭에서 자료를 찾지 못했습니다.</div>
+                ):(
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                      {[
+                        {label:'1. 대학', value:univChosen, options:univOptions, onChange:v=>setUnivSel({univ:v,college:'',unit:''}), placeholder:'대학 선택'},
+                        {label:'2. 단과대학/계열', value:collegeChosen, options:collegeOptions, onChange:v=>setUnivSel({...univSel,univ:univChosen,college:v,unit:''}), placeholder:univChosen?'단과대학/계열 선택':'대학을 먼저 선택하세요'},
+                        {label:'3. 학과/모집단위', value:unitChosen, options:unitOptions.map(x=>x.unit), onChange:v=>setUnivSel({univ:univChosen,college:collegeChosen,unit:v}), placeholder:collegeChosen?'학과/모집단위 선택':'단과대학/계열을 먼저 선택하세요'},
+                      ].map(sel=>(
+                        <label key={sel.label} className="flex flex-col gap-1">
+                          <span className="text-sm lg:text-base font-black text-slate-700">{sel.label}</span>
+                          <select value={sel.value} onChange={e=>sel.onChange(e.target.value)} disabled={sel.options.length===0}
+                            className="w-full p-3 text-base font-bold border-2 border-blue-300 rounded-xl bg-white text-slate-800 disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <option value="">{sel.placeholder}</option>
+                            {sel.options.map(o=><option key={o} value={o}>{o.length>40?o.slice(0,40)+'…':o}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+
+                    {!univResult?(
+                      <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">
+                        <div><div className="text-5xl mb-3">🎓</div>위에서 대학과 학과를 차례로 선택하세요.<br/><span className="text-sm">현재 {univOptions.length}개 대학 자료가 있습니다.</span></div>
+                      </div>
+                    ):(
+                      <div className="flex flex-col gap-4">
+                        <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
+                          <div className="text-sm font-bold text-blue-700">{univResult.univ} · {univResult.college}</div>
+                          <div className="text-xl lg:text-2xl font-black text-blue-950 break-keep">{univResult.unit}</div>
+                          {univResultInfo.sameRow.length>1&&<div className="mt-2 text-sm text-slate-600 break-keep"><b>같은 기준 적용:</b> {univResultInfo.sameRow.join(', ')}</div>}
+                        </div>
+
+                        <table className="w-full border-collapse text-left text-sm lg:text-base">
+                          <thead><tr className="bg-blue-800 text-white">
+                            <th className="p-2 lg:p-3 w-[18%] rounded-tl-xl">교과</th><th className="p-2 lg:p-3">핵심 과목</th><th className="p-2 lg:p-3 rounded-tr-xl">권장 과목</th>
+                          </tr></thead>
+                          <tbody>
+                            {univResultInfo.lines.map((l,i)=>(
+                              <tr key={i} className="border-b border-slate-200 align-top">
+                                <td className="p-2 lg:p-3 font-black text-blue-900 bg-blue-50">{l.subj||'안내'}</td>
+                                {l.other?(
+                                  <td colSpan={2} className="p-2 lg:p-3 font-medium text-slate-800 break-keep">{l.other}</td>
+                                ):(<>
+                                  <td className="p-2 lg:p-3 font-bold text-rose-700 break-keep">{l.core||'-'}</td>
+                                  <td className="p-2 lg:p-3 font-medium text-slate-800 break-keep">{l.rec||'-'}</td>
+                                </>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        <div className="rounded-2xl border-2 border-slate-200 p-4">
+                          <div className="font-black text-slate-800 mb-1">📋 우리 학교 과목과 비교</div>
+                          <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">권장 내용에 나오는 과목 중 우리 학교에서 배울 수 있는 과목입니다. <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 학교 지정 과목, <b className="text-rose-700">핵심</b>은 대학이 핵심 과목으로 밝힌 과목입니다.</p>
+                          {univResultInfo.matched.length===0?(
+                            <p className="text-sm text-slate-500">권장 내용에서 우리 학교 과목명을 찾지 못했습니다. 위 표의 내용을 직접 확인하세요.</p>
+                          ):(
+                            <div className="flex flex-wrap gap-2">
+                              {univResultInfo.matched.map(m=>(
+                                <span key={m.name} className={`px-3 py-1.5 rounded-lg text-sm lg:text-base font-bold border-2 ${m.isSelected?'bg-green-50 border-green-500 text-green-800':'bg-white border-slate-300 text-slate-600'}`}>
+                                  {m.isSelected?'✔ ':''}{m.name}{m.kind==='mandatory'?' (지정)':''}{m.isCore&&<span className="ml-1 text-xs text-white bg-rose-600 rounded px-1.5 py-0.5 align-middle">핵심</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 break-keep">※ 대학이 발표한 자료를 정리한 것입니다. 입시 요강은 해마다 바뀔 수 있으니 반드시 대학 입학처의 최신 자료를 확인하세요.</p>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
