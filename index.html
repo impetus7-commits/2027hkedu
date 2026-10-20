@@ -160,7 +160,7 @@ const YEARS_CACHE_KEY = 'hwikyung_years';
 const readLastYear = () => { try { return localStorage.getItem(LAST_YEAR_KEY); } catch (e) { return null; } };
 // 입학년도 결정 순서: 주소의 ?year= → 이 기기에서 마지막으로 고른 입학년도 → (없으면 선택 화면)
 const ACTIVE_YEAR = [URL_PARAMS.get('year'), readLastYear()].find(y => /^\d{4}$/.test(y || '')) || null;
-if (ACTIVE_YEAR) { try { localStorage.setItem(LAST_YEAR_KEY, ACTIVE_YEAR); } catch (e) {} }
+if (ACTIVE_YEAR && !URL_PARAMS.get('share')) { try { localStorage.setItem(LAST_YEAR_KEY, ACTIVE_YEAR); } catch (e) {} }
 
 // 탭 이름 앞의 입학년도 떼어 내기: "2027_과목데이터" → { year: '2027', name: '과목데이터' }
 const splitYearTab = (tabName) => {
@@ -212,7 +212,7 @@ const DATA_CACHE_KEY = `hwikyung_data_${ACTIVE_YEAR}`;   // 시트 자료 임시
 const TAB_NAMES = {
   info: '기본정보', groups: '선택군', rules: '규칙', subjects: '과목데이터',
   fields: '계열데이터', majors: '학과데이터', univ: '대학별 이수권장과목',
-  conditions: '조건', sharedCampus: '공유캠퍼스', intro: '과목소개',
+  conditions: '조건', sharedCampus: '공유캠퍼스', intro: '과목소개', jobs: '직업데이터', glossary: '용어풀이',
 };
 
 // ── 시트에 [기본정보] 탭이 없을 때 쓰는 기본값 ──
@@ -225,6 +225,7 @@ const DEFAULT_INFO = {
   source: '2026학년도 2022 개정 교육과정 선택 과목 안내서(서울특별시교육청)',
   years: [],
   tracks: ['일반', '과학중점'],
+  notice: '',
 };
 
 // ── 시트에 [선택군] 탭이 없을 때 쓰는 기본값 ──
@@ -503,6 +504,73 @@ const getAddViolation = (rule, subject, nextSelected, ctx) => {
   }
 };
 
+// ── 용어 풀이 (시트에 [용어풀이] 탭이 있으면 그 내용이 더해지고 덮어씀) ──
+const DEFAULT_GLOSSARY = {
+  '고교학점제': '학생이 진로와 적성에 따라 과목을 골라 듣고, 기준에 도달한 과목의 학점을 쌓아 졸업하는 제도입니다. 3년간 192학점 이상을 취득해야 졸업합니다.',
+  '학점': '과목의 수업 양입니다. 1학점은 한 학기 동안 일주일에 1시간(50분) 수업을 뜻합니다. 예) 4학점 = 주 4시간',
+  '공통 과목': '모든 학생이 1학년 때 배우는 기초 과목입니다. 예) 공통국어1, 공통수학1, 통합사회1',
+  '일반 선택': '각 교과의 기본이 되는 선택 과목입니다. 예) 문학, 대수, 물리학. 대부분 수능 출제 범위와 관련이 있습니다.',
+  '진로 선택': '일반 선택보다 깊이 있게 배우거나 진로와 관련된 내용을 다루는 과목입니다. 예) 기하, 역학과 에너지',
+  '융합 선택': '여러 교과의 내용을 묶거나 실생활에 적용하는 과목입니다. 예) 실용 통계, 기후변화와 환경생태',
+  '성취도': '절대평가 결과입니다. 정해진 기준에 얼마나 도달했는지로 A~E(일부 과목 A~C, P)를 받습니다. 다른 학생과 비교하지 않습니다.',
+  '석차등급': '상대평가 결과입니다. 같은 과목을 듣는 학생 안에서의 순위에 따라 1~5등급을 받습니다.',
+  '절대 평가': '정해진 성취 기준에 따라 성취도(A~E 등)를 매기는 평가입니다.',
+  '상대 평가': '같은 과목 수강생 안에서의 순위로 석차등급(1~5등급)을 매기는 평가입니다.',
+  '수능 출제': '대학수학능력시험(수능) 출제 범위에 들어가는 과목입니다. 표시된 수능 연도를 확인하세요.',
+  '선택군': '같은 학기에 함께 열리는 과목 묶음입니다. "택3"은 그 묶음에서 3과목을 골라야 한다는 뜻입니다.',
+  '학교 지정 과목': '학교가 모든 학생에게 정해 둔 과목입니다. 따로 고르지 않아도 편제표에 들어갑니다.',
+  '공유캠퍼스': '가까운 여러 학교가 함께 여는 과목입니다. 다른 학교에서 (주로 금요일 오후나 주말에) 수업을 듣고, 희망자만 신청합니다.',
+  '거점형 선택 교육과정': '특정 학교(거점학교)가 개설한 과목을 다른 학교 학생도 신청해 듣는 제도입니다.',
+  '일반 과정': '대부분의 학생이 따르는 과정으로, 정해진 조건 안에서 과목을 자유롭게 고릅니다.',
+  '과학중점 과정': '수학·과학·정보 과목을 많이 이수하는 과정입니다. 지정된 과목과 이수 학점 조건을 지켜야 합니다.',
+  '이수 기준': '과목을 이수(통과)하려면 출석률 2/3 이상이 필요하며, 공통 과목은 학업성취율 40% 이상도 필요합니다. 미달하면 보충 지도를 받습니다.',
+};
+let GLOSSARY = { ...DEFAULT_GLOSSARY };
+// 용어 옆 ⓘ: 누르면 짧은 설명이 열림
+function Term({ k, children, className = '' }) {
+  const [open, setOpen] = React.useState(false);
+  const text = GLOSSARY[k];
+  if (!text) return <>{children}</>;
+  return (
+    <span className={`relative inline-flex items-center gap-0.5 ${className}`}>
+      {children}
+      <button type="button" aria-label={`${k} 뜻 보기`} onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}
+        className="no-print inline-flex items-center justify-center w-4 h-4 text-[10px] leading-none font-black rounded-full bg-slate-200 text-slate-600 hover:bg-blue-600 hover:text-white align-middle">i</button>
+      {open && (
+        <span onClick={e => { e.stopPropagation(); setOpen(false); }}
+          className="absolute left-0 top-full mt-1 z-[2000] w-64 max-w-[80vw] p-3 rounded-xl bg-slate-900 text-white text-xs lg:text-sm font-medium leading-relaxed shadow-xl text-left whitespace-normal break-keep cursor-pointer">
+          <b className="block mb-1 text-blue-200">{k}</b>{text}<span className="block mt-1 text-[10px] text-slate-400">(눌러서 닫기)</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ── 공유 링크: 선택 내용을 주소에 담기 (이름·학번은 담지 않음) ──
+const encodeShare = (obj) => {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const decodeShare = (str) => {
+  try {
+    const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+  } catch (e) { return null; }
+};
+const SHARED = URL_PARAMS.get('share') ? decodeShare(URL_PARAMS.get('share')) : null;
+
+// ── 공지: "2027-03-05 수강신청 마감" → 날짜가 있으면 D-day, 지난 공지는 숨김 ──
+const parseNotices = (text) => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+  const m = line.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?\s*[|:\-]?\s*(.*)$/);
+  if (!m) return { text: line, dday: null };
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((date - today) / 86400000);
+  return { text: m[4] || line, date: `${Number(m[2])}/${Number(m[3])}`, dday: diff };
+}).filter(n => n.dday === null || n.dday >= 0);
+
 // ── 대학별 이수권장과목 도우미 ──
 // "기계공학부, 전기정보공학부(전자전공)" → 괄호 안 쉼표는 나누지 않음
 const splitUnits = (text) => {
@@ -578,6 +646,7 @@ const parseInfoSheet = (rows, year) => {
     semesterCredits: toNumOrNull(pick('학기별교과학점', '학기당교과학점')) || DEFAULT_INFO.semesterCredits,
     tracks: pick('운영과정') ? (pick('운영과정').includes('과학') ? ['일반', '과학중점'] : ['일반']) : DEFAULT_INFO.tracks,
     source: pick('자료출처', '출처') || DEFAULT_INFO.source,
+    notice: pick('공지', '알림'),
     years,
     yearMissing: years.length > 0 && col === -1,
   };
@@ -704,6 +773,13 @@ function App() {
   const [dbFieldDetails, setDbFieldDetails] = useState({});
   const [dbDepartmentDetails, setDbDepartmentDetails] = useState({});
   const [dbUnivData, setDbUnivData] = useState([]);
+  const [dbJobs, setDbJobs] = useState([]);
+  const [selectedJob, setSelectedJob] = useState('');
+  const [jobQuery, setJobQuery] = useState('');
+  const [compareNames, setCompareNames] = useState(['', '', '']);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [blockInfo, setBlockInfo] = useState(null);
+  const [shareMsg, setShareMsg] = useState('');
   const [univSel, setUnivSel] = useState({ univ: '', college: '', unit: '' });
   const [dbSubjects, setDbSubjects] = useState([]);
   const [dbMandatory, setDbMandatory] = useState(DEFAULT_MANDATORY_SUBJECTS);
@@ -860,7 +936,17 @@ function App() {
 
   // localStorage 불러오기
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    // 공유 링크로 열었으면 공유받은 선택을 보여 줌 (이 기기의 저장 내용은 건드리지 않음)
+    if (SHARED) {
+      setSelectedIds(Array.isArray(SHARED.s) ? SHARED.s : []);
+      setSelectedField(SHARED.f || 'none');
+      setSelectedMajor(SHARED.m || 'none');
+      setIsScienceTrack(SHARED.t === 's');
+      setIsGeneralTrack(SHARED.t !== 's');
+      return;
+    }
+    let saved = null;
+    try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) {}
     if (saved) {
       try {
         const p = JSON.parse(saved);
@@ -878,8 +964,33 @@ function App() {
 
   // localStorage 저장
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo}));
+    if (SHARED) return;   // 공유 보기는 저장하지 않음
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo})); } catch (e) {}
   }, [selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo]);
+
+  // 내 선택을 링크로 만들기 (이름·학번은 넣지 않음)
+  const makeShareUrl = () => {
+    const data = { v: 1, y: ACTIVE_YEAR, t: isScienceTrack ? 's' : 'g', f: selectedField, m: selectedMajor, s: selectedIds };
+    return `${window.location.origin}${window.location.pathname}?year=${ACTIVE_YEAR}&share=${encodeShare(data)}`;
+  };
+  const shareMySelection = async () => {
+    const url = makeShareUrl();
+    const title = `${SITE_TITLE} - 나의 과목 선택`;
+    try {
+      if (navigator.share && window.innerWidth < 768) { await navigator.share({ title, text: '내가 고른 과목을 확인해 주세요.', url }); setShareMsg('공유 창을 열었습니다.'); return; }
+      await navigator.clipboard.writeText(url);
+      setShareMsg('링크를 복사했습니다. 카카오톡·문자에 붙여 넣어 보내세요.');
+    } catch (e) {
+      window.prompt('아래 링크를 복사해서 보내세요.', url);
+      setShareMsg('');
+    }
+  };
+  // 공유받은 선택을 내 기기에 저장하고 수정하기
+  const importShared = () => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ selectedIds, selectedField, selectedMajor, isScienceTrack, isGeneralTrack, studentInfo: { studentNum: '', name: '' } })); } catch (e) {}
+    const params = new URLSearchParams(window.location.search); params.delete('share'); window.location.search = params.toString();
+  };
+  const leaveShared = () => { const params = new URLSearchParams(window.location.search); params.delete('share'); window.location.search = params.toString(); };
 
   useEffect(() => {
     if (activeTab==='major'&&guideSelectedField==='none'&&dbFields.length>1) {
@@ -891,7 +1002,7 @@ function App() {
   // 시트 원본(JSON 글자)을 화면에 쓰는 데이터로 바꾸기
   const applySheetText = (text) => {
       let parsedSubjects=[], parsedFields=[], parsedMajors=[], parsedConditions=[], parsedUnivRecs=[], parsedTimetable=[], dataArrays=[];
-      let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[], parsedIntro=[];
+      let parsedInfo=[], parsedGroups=[], parsedRules=[], parsedSharedCampus=[], parsedIntro=[], parsedJobs=[], parsedGlossary=[];
       const issues=[], notes=[];
       
       try {
@@ -932,6 +1043,8 @@ function App() {
             if (exact === 'univ') { parsedUnivRecs = rows; return; }
             if (exact === 'conditions') { parsedConditions = rows; return; }
             if (exact === 'intro') { parsedIntro = rows; return; }
+            if (exact === 'jobs') { parsedJobs = rows; return; }
+            if (exact === 'glossary') { parsedGlossary = rows; return; }
 
             // 2) 이름이 다르면 탭 이름·제목 줄로 추측
             if (k.includes('대학별') || k.includes('이수권장')) {
@@ -1213,6 +1326,11 @@ function App() {
       });
 
       if(!loadedInfo.tracks.includes('과학중점')&&loadedRules.some(r=>r.track==='과학중점')) issues.push(`[규칙] 이 입학년도는 [기본정보] 운영과정에 과학중점이 없는데, 과학중점 규칙이 남아 있습니다 (적용되지 않음).`);
+      // 직업데이터: 직업 | 관련 과목
+      setDbJobs(parsedJobs.slice(1).map(r => ({ job: cell(r, 0), subjectsText: cell(r, 1) })).filter(j => j.job));
+      // 용어풀이: 용어 | 설명 (기본 용어에 더하거나 덮어씀)
+      GLOSSARY = { ...DEFAULT_GLOSSARY };
+      parsedGlossary.slice(1).forEach(r => { if (cell(r, 0) && cell(r, 1)) GLOSSARY[cell(r, 0)] = cell(r, 1); });
       setDbInfo(loadedInfo);
       setDbGroups(loadedGroups);
       setDbRules(loadedRules);
@@ -1379,6 +1497,47 @@ function App() {
   const popupRecommenders = useMemo(() => getRecommenders(infoModalSubject), [infoModalSubject, dbMajors]);
   const guideRecommenders = useMemo(() => getRecommenders(guideSubjectDetails), [guideSubjectDetails, dbMajors]);
 
+  // 우리 학교 과목 목록: 과목명 → 개설 학기, 담을 수 있는 과목 카드(같은 과목이 여러 학기에 있으면 모두)
+  const schoolSubjectIndex = useMemo(() => {
+    const map = new Map();
+    const add = (name, sem, entry, kind) => {
+      const k = normLoose(name);
+      if (!map.has(k)) map.set(k, { name, sems: new Set(), entries: [], kind });
+      const o = map.get(k);
+      if (sem) o.sems.add(sem);
+      if (entry) o.entries.push(entry);
+      if (kind === 'mandatory') o.kind = 'mandatory';
+    };
+    dbSubjects.forEach(x => add(x.name, groupMap[x.group]?.semester, x, 'elective'));
+    Object.entries(dbMandatory).forEach(([sem, list]) => list.forEach(m => add(m.name, sem, null, 'mandatory')));
+    return [...map.values()].map(o => ({ ...o, semText: o.sems.size ? `${[...o.sems].sort().join('·')}학기` : '' }));
+  }, [dbSubjects, dbMandatory, groupMap]);
+  // 문장 속 우리 학교 과목 찾기 (핵심 과목 먼저, 나온 순서대로)
+  const matchSchoolSubjects = (text, coreText = '') => {
+    const nt = normLoose(text), nc = normLoose(coreText);
+    return findSubjectsInText(text, schoolSubjectIndex)
+      .map(s => ({ ...s, isCore: !!coreText && nc.includes(normLoose(s.name)),
+                   isSelected: s.kind === 'mandatory' || s.entries.some(e => selectedIds.includes(e.id)) }))
+      .sort((a, b) => (b.isCore - a.isCore) || (nt.indexOf(normLoose(a.name)) - nt.indexOf(normLoose(b.name))));
+  };
+  // 과목 칩: ✔ 담음/지정, (개설 학기), 핵심 표시, [담기] 버튼
+  const renderSubjectChips = (list) => (
+    <div className="flex flex-wrap gap-2">
+      {list.map(m => (
+        <span key={m.name} className={`inline-flex items-center flex-wrap gap-1 px-3 py-1.5 rounded-lg text-sm lg:text-base font-bold border-2 ${m.isSelected?'bg-green-50 border-green-500 text-green-800':'bg-white border-slate-300 text-slate-700'}`}>
+          {m.isSelected?'✔ ':''}{m.name}
+          {(m.semText||m.kind==='mandatory')&&<span className="font-medium">({[m.semText, m.kind==='mandatory'?'지정':''].filter(Boolean).join(', ')})</span>}
+          {m.isCore&&<span className="text-xs text-white bg-rose-600 rounded px-1.5 py-0.5">핵심</span>}
+          {!m.isSelected&&!SHARED&&m.entries.map(e=>(
+            <button key={e.id} type="button" onClick={()=>toggleSubject(e)} className="no-print text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-md px-2 py-1">
+              {m.entries.length>1?`${groupMap[e.group]?.semester} 담기`:'담기'}
+            </button>
+          ))}
+        </span>
+      ))}
+    </div>
+  );
+
   // 대학별 이수권장과목: 대학 → 단과대학/계열 → 학과/모집단위
   const univUnits = useMemo(() => {
     const list = [];
@@ -1400,23 +1559,10 @@ function App() {
     if (!univResult) return null;
     const text = univResult.row.rec || univResult.row.core || '';
     const lines = parseUnivRec(text);
-    const coreText = lines.map(l => l.core).join(' ');
-    const schoolSubjects = [...uniqueElectiveSubjects.map(s => ({ name: s.name, kind: 'elective', id: s.id })),
-      ...Object.values(dbMandatory).flat().map(m => ({ name: m.name, kind: 'mandatory' }))];
-    const seen = new Set();
-    const matched = findSubjectsInText(text, schoolSubjects).filter(s => { const k = normLoose(s.name); if (seen.has(k)) return false; seen.add(k); return true; })
-      .map(s => ({ ...s, isCore: normLoose(coreText).includes(normLoose(s.name)),
-                   isSelected: s.kind === 'mandatory' || selectedSubjects.some(x => normLoose(x.name) === normLoose(s.name)) }))
-      .sort((a, b) => (b.isCore - a.isCore) || (normLoose(text).indexOf(normLoose(a.name)) - normLoose(text).indexOf(normLoose(b.name))));
+    const matched = matchSchoolSubjects(text, lines.map(l => l.core).join(' '));
     const sameRow = univUnits.filter(x => x.rowKey === univResult.rowKey).map(x => x.unit);
-    // 우리 학교 개설 학기 (같은 과목이 여러 학기에 있으면 모두): 예) 2-1·2-2학기
-    const semMap = {};
-    const addSem = (name, sem) => { const k = normLoose(name); if (!sem) return; (semMap[k] = semMap[k] || new Set()).add(sem); };
-    dbSubjects.forEach(x => addSem(x.name, groupMap[x.group]?.semester));
-    Object.entries(dbMandatory).forEach(([sem, list]) => list.forEach(m => addSem(m.name, sem)));
-    matched.forEach(m => { const set = semMap[normLoose(m.name)]; m.semText = set ? `${[...set].sort().join('·')}학기` : ''; });
     return { lines, matched, sameRow };
-  }, [univResult, uniqueElectiveSubjects, dbMandatory, selectedSubjects, univUnits, dbSubjects, groupMap]);
+  }, [univResult, schoolSubjectIndex, selectedIds, univUnits]);
 
   // 실시간 조건 검증 엔진 ([규칙] 탭 기반)
   const mandatoryList = useMemo(() => Object.values(dbMandatory).flat(), [dbMandatory]);
@@ -1471,39 +1617,129 @@ function App() {
   };
 
   // 과목 담기 로직
+  // 이 과목을 지금 담을 수 있는지 확인: 안 되면 { reason, ruleText, full } / 되면 null
+  const checkAdd = (subject, current = selectedSubjects) => {
+    const groupDef = GROUPS.find(g=>g.id===subject.group);
+    if (!groupDef) return { reason: '선택군 정보를 찾을 수 없습니다.' };
+    const inGroup = current.filter(s=>s.group===subject.group);
+    if (inGroup.length >= groupDef.maxPick) return { full: true, reason: `${groupDef.label}군에서는 ${groupDef.maxPick}과목까지만 고를 수 있어요. 이미 ${inGroup.length}과목을 골랐습니다.` };
+    const next = [...current, subject];
+    for (const rule of preparedRules) {
+      if (!ruleAppliesToTrack(rule, isScienceTrack)) continue;
+      const reason = getAddViolation(rule, subject, next, { groupMap, mandatoryList });
+      if (reason) return { reason, ruleText: replaceGroupIds(rule.text || `${rule.scope} ${rule.type}`, GROUPS) };
+    }
+    return null;
+  };
+
+  // 과목 담기/빼기 (담을 수 없으면 화면 아래에 이유와 대안을 보여 줌)
   const toggleSubject = (subject) => {
+    if (SHARED) { setBlockInfo({ shared: true }); return; }
     if(!isGeneralTrack&&!isScienceTrack){
       setAlertMessage("⚠️ 과정 선택 필수\n\n과목을 담기 전에 상단의 '나의 진로 및 과정 설정'에서\n[일반 과정] 또는 [과학중점 과정]을 먼저 선택해 주세요.");
       return;
     }
-
     if(selectedIds.includes(subject.id)){
       setSelectedIds(selectedIds.filter(id=>id!==subject.id));
+      setBlockInfo(null);
       return;
     }
-
-    const groupDef = GROUPS.find(g=>g.id===subject.group);
-    if(!groupDef) return;
-    const currentGroupSelections = selectedSubjects.filter(s=>s.group===subject.group);
-    if(currentGroupSelections.length >= groupDef.maxPick){
-      setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[${groupDef.name}] 군에서는 최대 ${groupDef.maxPick}과목까지만 선택 가능합니다.\n다른 과목을 빼고 담아주세요.`);
+    const v = checkAdd(subject);
+    if (v) {
+      const groupDef = GROUPS.find(g=>g.id===subject.group);
+      const pickedInGroup = v.full ? selectedSubjects.filter(s=>s.group===subject.group) : [];
+      const swaps = pickedInGroup.map(p => ({ out: p, ok: !checkAdd(subject, selectedSubjects.filter(x=>x.id!==p.id)) }));
+      const alternatives = v.full ? [] : dbSubjects.filter(s=>s.group===subject.group && s.id!==subject.id && !selectedIds.includes(s.id) && !checkAdd(s));
+      setBlockInfo({ subject, groupName: groupDef?.name || '', ...v, swaps, alternatives });
       return;
     }
-
-    // [규칙] 탭의 규칙을 하나씩 확인 (현재 과정에 해당하는 규칙만)
-    const nextSelected = [...selectedSubjects, subject];
-    for (const rule of preparedRules) {
-      if (!ruleAppliesToTrack(rule, isScienceTrack)) continue;
-      const reason = getAddViolation(rule, subject, nextSelected, { groupMap, mandatoryList });
-      if (reason) {
-        const ruleText = replaceGroupIds(rule.text || `${rule.scope} ${rule.type}`, GROUPS);
-        setAlertMessage(`⚠️ 수강신청 유의사항 위반\n\n[${groupDef.name}] '${subject.name}'\n${reason}\n\n요건: ${ruleText}`);
-        return;
-      }
-    }
-
+    setBlockInfo(null);
     setSelectedIds([...selectedIds, subject.id]);
   };
+  const swapSubject = (outSubject, inSubject) => {
+    setSelectedIds([...selectedIds.filter(id=>id!==outSubject.id), inSubject.id]);
+    setBlockInfo(null);
+  };
+
+  // ── 메뉴: ① 진로 찾기 ② 과목 고르기 ③ 내 결과 ❓ 도움말 ──
+  const MENU = [
+    { id: 'explore', icon: '🧭', num: '①', label: '진로 찾기', tabs: [{ id: 'job', icon: '💼', label: '직업으로 찾기' }, { id: 'major', icon: '🗺️', label: '학과 가이드' }, { id: 'university', icon: '🏛️', label: '대학별 이수권장' }] },
+    { id: 'pick', icon: '✏️', num: '②', label: '과목 고르기', tabs: [{ id: 'planner', icon: '📋', label: '나의 편제표' }, { id: 'subject', icon: '📚', label: '선택과목 가이드' }, { id: 'compare', icon: '⚖️', label: '과목 비교' }] },
+    { id: 'result', icon: '✅', num: '③', label: '내 결과', tabs: [{ id: 'check', icon: '🔎', label: '조건 점검·공유' }, { id: 'career', icon: '🎓', label: '나의 보고서' }] },
+    { id: 'help', icon: '❓', num: '', label: '도움말', tabs: [{ id: 'help', icon: '❓', label: '도움말' }] },
+  ];
+  const activeMenu = MENU.find(m => m.tabs.some(t => t.id === activeTab)) || MENU[1];
+  const isMobile = () => window.innerWidth < 768;
+  const goTab = (tabId) => {
+    setActiveTab(tabId);
+    if (isMobile()) setTimeout(() => rightPaneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
+  const scrollLeftTo = (el) => {
+    if (!el) return;
+    if (isMobile()) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    const pane = leftPaneRef.current; if (!pane) return;
+    pane.scrollTo({ top: pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8, behavior: 'smooth' });
+  };
+  const goSubjects = () => scrollLeftTo(document.getElementById('subject-area'));
+  const goSettings = () => scrollLeftTo(document.getElementById('settings-area'));
+
+  // ── 진행 표시줄 ──
+  const requiredPickTotal = GROUPS.filter(g => !g.isOptional).reduce((sum, g) => sum + g.maxPick, 0);
+  const requiredPicked = selectedSubjects.filter(s => groupMap[s.group] && !groupMap[s.group].isOptional).length;
+  const trackConditions = evaluatedConditions.filter(c => ruleAppliesToTrack(c.rule, isScienceTrack));
+  const failCount = trackConditions.filter(c => c.status === 'fail').length;
+  const progressSteps = [
+    { key: 'track', label: '과정 선택', done: isGeneralTrack || isScienceTrack, onClick: goSettings },
+    { key: 'career', label: '진로 정하기', sub: '(선택)', done: selectedField !== 'none', optional: true, onClick: goSettings },
+    { key: 'pick', label: '과목 고르기', sub: `${requiredPicked}/${requiredPickTotal}`, done: requiredPickTotal > 0 && requiredPicked >= requiredPickTotal, onClick: goSubjects },
+    { key: 'check', label: '조건 확인', sub: failCount ? `⚠ ${failCount}` : '', warn: failCount > 0, done: requiredPicked >= requiredPickTotal && failCount === 0 && requiredPickTotal > 0, onClick: () => goTab('check') },
+    { key: 'report', label: '공유·보고서', done: false, onClick: () => goTab('career') },
+  ];
+
+  // ── 공지 띠 ──
+  const notices = useMemo(() => parseNotices(dbInfo.notice), [dbInfo]);
+
+  // ── 통합 검색: 과목·학과·직업·대학 ──
+  const searchResults = useMemo(() => {
+    const q = normLoose(searchQuery);
+    if (!q) return null;
+    const subjects = uniqueElectiveSubjects.filter(x => normLoose(x.name).includes(q) || normLoose(x.popupData?.keywords).includes(q)).slice(0, 6);
+    const depts = Object.values(dbDepartmentDetails).filter(d => normLoose(d.name).includes(q) || normLoose(d.similarDepts).includes(q)).slice(0, 6);
+    const jobs = dbJobs.filter(j => normLoose(j.job).includes(q)).slice(0, 6);
+    const seenU = new Set();
+    const univs = univUnits.filter(u => (normLoose(u.unit).includes(q) || normLoose(u.univ).includes(q)) && !seenU.has(u.univ + u.unit) && seenU.add(u.univ + u.unit)).slice(0, 6);
+    return { subjects, depts, jobs, univs, total: subjects.length + depts.length + jobs.length + univs.length };
+  }, [searchQuery, uniqueElectiveSubjects, dbDepartmentDetails, dbJobs, univUnits]);
+  const openSearchResult = (kind, item) => {
+    setSearchQuery('');
+    if (kind === 'subject') setInfoModalSubject(item);
+    if (kind === 'dept') { setGuideSelectedField(item.field); setGuideSelectedMajor(item.name); goTab('major'); }
+    if (kind === 'job') { setSelectedJob(item.job); goTab('job'); }
+    if (kind === 'univ') { setUnivSel({ univ: item.univ, college: item.college, unit: item.unit }); goTab('university'); }
+  };
+
+  // ── 직업으로 찾기 ──
+  const jobInfo = useMemo(() => {
+    const j = dbJobs.find(x => x.job === selectedJob);
+    if (!j) return null;
+    const matched = matchSchoolSubjects(j.subjectsText);
+    const have = new Set(matched.map(m => normLoose(m.name)));
+    const notOffered = splitUnits(j.subjectsText.replace(/\s*등\s*$/, '')).map(x => x.replace(/\s*등$/, '').trim())
+      .filter(x => x && !have.has(normLoose(x)) && !matched.some(m => normLoose(x).includes(normLoose(m.name))));
+    return { ...j, matched, notOffered };
+  }, [dbJobs, selectedJob, schoolSubjectIndex, selectedIds]);
+
+  // ── 과목 비교 ──
+  const compareOptions = useMemo(() => [...uniqueElectiveSubjects].sort((a, b) => {
+    const ta = TYPE_ORDER.indexOf(normalizeType(a.type, a.name)), tb = TYPE_ORDER.indexOf(normalizeType(b.type, b.name));
+    return (ta - tb) || a.name.localeCompare(b.name, 'ko');
+  }), [uniqueElectiveSubjects]);
+  const addToCompare = (name) => {
+    const next = [...compareNames];
+    if (!next.includes(name)) { const i = next.indexOf(''); next[i === -1 ? 2 : i] = name; }
+    setCompareNames(next); setInfoModalSubject(null); goTab('compare');
+  };
+  const compareSubjects = compareNames.map(n => n ? uniqueElectiveSubjects.find(x => x.name === n) : null);
 
   // 편제표 렌더링
   const renderTimetable = () => (
@@ -1522,11 +1758,11 @@ function App() {
           </div>
         </div>
         <div className="hidden xl:flex items-center gap-2 text-xs lg:text-sm font-bold bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm flex-wrap print:flex print:w-full print:border-none print:shadow-none print:p-0 print:gap-1.5 print:mt-1 print:justify-start">
-          <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>{CSAT_SHORT} 출제</span>
+          <span className="flex items-center gap-1 text-yellow-700 print:text-[7pt]"><span className="w-3 h-3 bg-yellow-100 border-[3px] border-yellow-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span><Term k="수능 출제">{CSAT_SHORT} 출제</Term></span>
           <span className="flex items-center gap-1 text-orange-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-white border-[3px] border-orange-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>계열 추천</span>
           <span className="flex items-center gap-1 text-pink-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-pink-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>학과 추천</span>
           <span className="flex items-center gap-1 text-blue-700 print:text-[7pt]"><span className="w-3 h-3 bg-white border-[3px] border-blue-500 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>공통 추천</span>
-          <span className="flex items-center gap-1 text-purple-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-purple-100 border-[3px] border-purple-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span>공유캠퍼스</span>
+          <span className="flex items-center gap-1 text-purple-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-purple-100 border-[3px] border-purple-400 rounded-sm print:w-2 print:h-2 print:border-[1.5px]"></span><Term k="공유캠퍼스">공유캠퍼스</Term></span>
           {isScienceTrack && (
             <span className="flex items-center gap-1 text-teal-700 print:text-[7pt] ml-1 print:ml-0"><span className="w-3 h-3 bg-teal-600 rounded-sm shadow-sm print:w-2 print:h-2"></span>과중 대상</span>
           )}
@@ -1888,14 +2124,14 @@ function App() {
         {/* TOP 이동 고정 버튼 (보고서 화면용 - 좌/우 양쪽 배치) */}
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
+          className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[9989] flex items-center justify-center w-12 h-12 md:w-14 md:h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
           title="맨 위로 이동"
         >
           <span className="text-2xl font-black leading-none -mt-1">↑</span>
         </button>
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 left-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
+          className="fixed bottom-20 md:bottom-6 left-4 md:left-6 z-[9989] flex items-center justify-center w-12 h-12 md:w-14 md:h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
           title="맨 위로 이동"
         >
           <span className="text-2xl font-black leading-none -mt-1">↑</span>
@@ -1906,7 +2142,59 @@ function App() {
 
   // 메인 화면 렌더링
   return (
-    <div id="main-app" className="min-h-screen bg-slate-50 p-2 md:p-4 xl:p-6 font-sans flex flex-col no-print">
+    <div id="main-app" className="min-h-screen bg-slate-50 p-2 pb-24 md:p-4 xl:p-6 font-sans flex flex-col no-print">
+
+      {/* 담을 수 없을 때: 이유와 대안 (화면을 가리지 않음) */}
+      {blockInfo&&(
+        <div role="alert" className="no-print fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-[9999] w-[94%] max-w-xl bg-white border-[3px] border-amber-400 rounded-2xl shadow-2xl p-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+          <button onClick={()=>setBlockInfo(null)} aria-label="닫기" className="absolute top-2 right-3 text-slate-400 hover:text-slate-800 text-xl font-black">✕</button>
+          {blockInfo.shared?(
+            <div className="pr-6">
+              <div className="font-black text-slate-900 mb-1">📨 공유받은 화면은 보기 전용이에요</div>
+              <p className="text-sm text-slate-600 mb-3">이 선택을 바탕으로 직접 고치려면 내 기기에 저장하세요.</p>
+              <button onClick={importShared} className="px-4 py-2 rounded-xl bg-violet-700 text-white font-bold">내 기기에 저장하고 수정하기</button>
+            </div>
+          ):(
+            <div className="pr-6">
+              <div className="font-black text-slate-900 mb-1 break-keep">🙅 '{blockInfo.subject.name}'은(는) 지금 담을 수 없어요</div>
+              <p className="text-sm lg:text-base font-bold text-amber-800 break-keep">{blockInfo.reason}</p>
+              {blockInfo.ruleText&&<p className="text-xs lg:text-sm text-slate-500 mt-1 break-keep">요건: {blockInfo.ruleText}</p>}
+              {blockInfo.swaps&&blockInfo.swaps.length>0&&(
+                <div className="mt-3">
+                  <div className="text-sm font-black text-slate-700 mb-1.5">이미 고른 과목과 바꾸기</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {blockInfo.swaps.map(({out,ok})=>(
+                      <button key={out.id} disabled={!ok} onClick={()=>swapSubject(out,blockInfo.subject)} className="px-3 py-1.5 rounded-lg text-sm font-bold border-2 border-blue-300 bg-blue-50 text-blue-900 disabled:opacity-40 disabled:cursor-not-allowed" title={ok?'':'바꾸면 다른 조건에 걸립니다'}>
+                        {out.name} 빼고 담기
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {blockInfo.alternatives&&blockInfo.alternatives.length>0&&(
+                <div className="mt-3">
+                  <div className="text-sm font-black text-slate-700 mb-1.5">대신 담을 수 있는 과목 ({blockInfo.groupName})</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {blockInfo.alternatives.map(a=>(
+                      <button key={a.id} onClick={()=>toggleSubject(a)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-blue-600 text-white hover:bg-blue-700">{a.name} 담기</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 휴대폰 아래 메뉴 막대 */}
+      <nav className="no-print md:hidden fixed bottom-0 inset-x-0 z-[9990] bg-white border-t-2 border-slate-200 grid grid-cols-4 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]" aria-label="빠른 메뉴">
+        {MENU.map(m=>(
+          <button key={m.id} onClick={()=>m.id==='pick'?goSubjects():goTab(m.tabs[0].id)}
+            className={`flex flex-col items-center justify-center py-2 text-[11px] font-black ${activeMenu.id===m.id&&m.id!=='pick'?'text-blue-800':'text-slate-600'}`}>
+            <span className="text-xl leading-none mb-0.5">{m.icon}</span>{m.label}
+          </button>
+        ))}
+      </nav>
 
       {/* 알림 팝업 */}
       {alertMessage&&(
@@ -1943,7 +2231,8 @@ function App() {
           <div className="p-4 lg:p-6 space-y-6 rounded-b-3xl max-h-[70vh] overflow-y-auto custom-scrollbar bg-white">
             <div className="flex gap-2 items-center mb-2">
               <span className="bg-slate-100 border border-slate-300 text-slate-700 px-5 py-2 rounded-full font-extrabold text-base">{infoModalSubject.type||'교과군'}</span>
-              <span className="bg-blue-100 border border-blue-200 text-blue-800 px-5 py-2 rounded-full font-extrabold text-base">{infoModalSubject.popupData?.selType||'일반 선택'}</span>
+              <span className="bg-blue-100 border border-blue-200 text-blue-800 px-5 py-2 rounded-full font-extrabold text-base"><Term k={(infoModalSubject.popupData?.selType||'일반 선택').replace(/\s+/g,' ').trim()}>{infoModalSubject.popupData?.selType||'일반 선택'}</Term></span>
+              <button onClick={()=>addToCompare(infoModalSubject.name)} className="no-print ml-auto px-4 py-2 rounded-full font-extrabold text-sm bg-white border-2 border-blue-400 text-blue-800 hover:bg-blue-50">⚖️ 비교에 담기</button>
             </div>
             
             {getValidYouTubeUrl(infoModalSubject.popupData?.youtube) && (
@@ -1961,7 +2250,7 @@ function App() {
               <h4 className="font-extrabold text-[1.3rem] lg:text-[1.5rem] text-blue-800 flex items-center gap-2">ℹ️ 과목 프로필</h4>
               <div className="rounded-xl overflow-hidden border border-blue-200 shadow-sm">
                 <table className="w-full border-collapse text-center text-base">
-                  <thead><tr className="bg-blue-100 text-blue-900"><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">절대 평가(성취도)</th><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3">상대 평가</th><th className="p-3 border-b border-blue-200 font-bold w-1/3">{dbInfo.csatYear} 수능 출제 과목</th></tr></thead>
+                  <thead><tr className="bg-blue-100 text-blue-900"><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3"><Term k="성취도">절대 평가(성취도)</Term></th><th className="p-3 border-r border-b border-blue-200 font-bold w-1/3"><Term k="석차등급">상대 평가</Term></th><th className="p-3 border-b border-blue-200 font-bold w-1/3"><Term k="수능 출제">{dbInfo.csatYear} 수능 출제 과목</Term></th></tr></thead>
                   <tbody className="bg-white"><tr><td className="p-3 border-r border-blue-200 font-medium whitespace-pre-wrap">{infoModalSubject.popupData?.evalAbs||'-'}</td><td className="p-3 border-r border-blue-200 font-medium whitespace-pre-wrap">{infoModalSubject.popupData?.evalRel||'-'}</td><td className="p-3 font-medium whitespace-pre-wrap">{infoModalSubject.csat||'-'}</td></tr></tbody>
                 </table>
               </div>
@@ -2037,6 +2326,29 @@ function App() {
         </div>
       )}
 
+      {/* 공유받은 선택 보기 안내 */}
+      {SHARED&&(
+        <div className="no-print mb-3 rounded-2xl border-2 border-violet-400 bg-violet-50 px-4 py-3 flex flex-wrap items-center gap-2">
+          <span className="font-black text-violet-900 break-keep">📨 공유받은 과목 선택을 보고 있습니다 <span className="font-bold text-violet-700">(보기 전용 · 이름과 학번은 공유되지 않습니다)</span></span>
+          <span className="flex gap-2 ml-auto">
+            <button onClick={importShared} className="px-3 py-1.5 rounded-lg bg-violet-700 text-white font-bold text-sm">내 기기에 저장하고 수정하기</button>
+            <button onClick={leaveShared} className="px-3 py-1.5 rounded-lg bg-white border border-violet-300 text-violet-800 font-bold text-sm">내 화면으로 돌아가기</button>
+          </span>
+        </div>
+      )}
+      {/* 공지 띠 ([기본정보] 공지) */}
+      {notices.length>0&&(
+        <div className="no-print mb-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="font-black text-amber-800">📢 알림</span>
+          {notices.map((n,i)=>(
+            <span key={i} className="font-bold text-slate-800 text-sm lg:text-base break-keep">
+              {n.text}{n.date&&<span className="text-slate-500 font-medium"> ({n.date})</span>}
+              {n.dday!==null&&<span className={`ml-1.5 px-2 py-0.5 rounded-md text-xs font-black text-white ${n.dday<=3?'bg-red-600':'bg-amber-600'}`}>{n.dday===0?'오늘':`D-${n.dday}`}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* 헤더 */}
       <header className="mb-4 bg-white px-4 py-3 lg:px-6 lg:py-4 rounded-2xl shadow-sm border-l-[8px] border-b-4 border-blue-950 border-b-blue-400 flex flex-col relative z-[250] shrink-0 no-print">
         <span className="order-last md:order-none mt-2 md:mt-0 self-end md:absolute md:top-2 md:right-4 text-xs lg:text-sm font-bold text-slate-500 whitespace-nowrap">{SITE_CREDIT}</span>
@@ -2061,16 +2373,43 @@ function App() {
             <p className="text-sm md:text-base font-bold text-red-600 break-keep">본 페이지의 내용에 오류가 있을 수도 있으니 책자를 반드시 참고하여 확인 후 과목 선택을 하시길 바랍니다.</p>
           </div>
           
-          <div className="flex flex-col lg:flex-row items-center gap-2 lg:gap-3 bg-indigo-50 border border-indigo-200 px-4 py-2.5 rounded-xl shadow-sm w-full xl:w-auto mt-1 xl:mt-0">
-            <span className="font-black text-indigo-900 text-sm md:text-base shrink-0 flex items-center gap-1.5">🚀 사용 방법</span>
-            <div className="flex flex-wrap justify-center items-center gap-1.5 text-xs md:text-sm font-bold text-slate-700">
-              <span className="bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-sm"><span className="text-indigo-600 mr-1">1)</span>{hasScienceTrack?<>일반, 과학중점 과정 결정 <span className="text-red-500 font-black">(필수)</span></>:<>과정 요건 확인</>}</span>
-              <span className="text-indigo-300 font-black">▶</span>
-              <span className="bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-sm"><span className="text-indigo-600 mr-1">2)</span>희망 계열, 학과 결정 <span className="text-slate-500 font-black">(선택)</span></span>
-              <span className="text-indigo-300 font-black">▶</span>
-              <span className="bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-sm"><span className="text-indigo-600 mr-1">3)</span>과목 선택</span>
-              <span className="text-indigo-300 font-black">▶</span>
-              <span className="bg-white px-2.5 py-1 rounded-md border border-indigo-100 shadow-sm"><span className="text-indigo-600 mr-1">4)</span>나만의 보고서</span>
+          <div className="no-print flex flex-col gap-2 w-full xl:w-auto xl:min-w-[520px]">
+            {/* 통합 검색 */}
+            <div className="relative">
+              <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="🔍 과목·학과·직업·대학 검색 (예: 간호, 물리, 경희대)"
+                className="w-full px-4 py-2.5 rounded-xl border-2 border-blue-300 bg-white text-base font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="통합 검색"/>
+              {searchQuery&&<button onClick={()=>setSearchQuery('')} aria-label="검색어 지우기" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 font-black">✕</button>}
+              {searchResults&&(
+                <div className="absolute left-0 right-0 top-full mt-1 z-[600] bg-white border-2 border-blue-300 rounded-xl shadow-2xl max-h-[60vh] overflow-y-auto custom-scrollbar p-2 text-left">
+                  {searchResults.total===0&&<p className="p-3 text-sm text-slate-500 font-bold">검색 결과가 없습니다.</p>}
+                  {[
+                    {kind:'subject', title:'📚 과목', items:searchResults.subjects, label:x=>x.name, sub:x=>`${x.type||''}${groupMap[x.group]?` · ${groupMap[x.group].semester}학기`:''}`},
+                    {kind:'dept', title:'🗺️ 학과', items:searchResults.depts, label:x=>x.name, sub:x=>x.field},
+                    {kind:'job', title:'💼 직업', items:searchResults.jobs, label:x=>x.job, sub:()=>'관련 과목 보기'},
+                    {kind:'univ', title:'🏛️ 대학 권장 과목', items:searchResults.univs, label:x=>`${x.univ} ${x.unit}`, sub:x=>x.college},
+                  ].filter(g=>g.items.length).map(g=>(
+                    <div key={g.kind} className="mb-1">
+                      <div className="px-2 pt-1 text-xs font-black text-slate-500">{g.title}</div>
+                      {g.items.map((it,i)=>(
+                        <button key={i} onClick={()=>openSearchResult(g.kind,it)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 flex items-baseline gap-2">
+                          <span className="font-bold text-slate-900 break-keep">{g.label(it)}</span><span className="text-xs text-slate-500 truncate">{g.sub(it)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* 진행 표시줄 */}
+            <div className="flex flex-wrap items-center justify-center xl:justify-start gap-1 text-xs md:text-sm font-bold">
+              {progressSteps.map((st,i)=>(
+                <React.Fragment key={st.key}>
+                  {i>0&&<span className="text-slate-300 font-black">›</span>}
+                  <button onClick={st.onClick} className={`px-2.5 py-1.5 rounded-lg border-2 transition-colors ${st.warn?'bg-red-50 border-red-400 text-red-700':st.done?'bg-green-50 border-green-500 text-green-800':st.optional?'bg-white border-dashed border-slate-300 text-slate-500':'bg-white border-slate-300 text-slate-700 hover:border-blue-400'}`}>
+                    <span className="mr-1">{st.done?'✔':i+1}</span>{st.label}{st.sub&&<span className="ml-1 font-black">{st.sub}</span>}
+                  </button>
+                </React.Fragment>
+              ))}
             </div>
           </div>
         </div>
@@ -2105,7 +2444,7 @@ function App() {
         {/* ── 왼쪽 패널 ── */}
         <div ref={leftPaneRef} className={`w-full flex flex-col gap-3 relative md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:hidden' : 'md:flex'}`}>
           {/* 진로 설정 섹션 */}
-          <div className="flex flex-col gap-1.5 shrink-0">
+          <div id="settings-area" className="flex flex-col gap-1.5 shrink-0">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-t-4 border-blue-600">
               <h2 className="text-xl lg:text-3xl font-black flex flex-wrap items-center gap-2 text-slate-800 mb-3 lg:mb-4">
                 <div className="flex items-center gap-1.5">✦ 나의 진로 및 과정 설정</div>
@@ -2128,7 +2467,7 @@ function App() {
                   <div className="flex items-center gap-1">
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs lg:text-base font-extrabold text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-200 hover:bg-emerald-100">
                       <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" checked={isGeneralTrack} onChange={(e)=>handleTrackChange('general', e.target.checked)} /> 일반 과정
-                    </label>
+                    </label><Term k="일반 과정"/>
                     {isGeneralTrack && (
                       <button onClick={()=>setShowGeneralPopup(!showGeneralPopup)} className={`text-xs lg:text-base font-extrabold px-3 py-2 rounded-lg shadow-sm transition-colors border ${showGeneralPopup ? 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' : 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'}`} title="일반 과정 요건 보기/닫기">
                         {showGeneralPopup ? '요건닫기' : '📋 요건보기'}
@@ -2139,7 +2478,7 @@ function App() {
                   <div className="flex items-center gap-1">
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs lg:text-base font-extrabold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200 hover:bg-blue-100">
                       <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={isScienceTrack} onChange={(e)=>handleTrackChange('science', e.target.checked)} /> 과학중점 과정
-                    </label>
+                    </label><Term k="과학중점 과정"/>
                     {isScienceTrack && (
                       <button onClick={()=>setShowSciencePopup(!showSciencePopup)} className={`text-xs lg:text-base font-extrabold px-3 py-2 rounded-lg shadow-sm transition-colors border ${showSciencePopup ? 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700'}`} title="과학중점 과정 요건 보기/닫기">
                         {showSciencePopup ? '요건닫기' : '📋 요건보기'}
@@ -2182,7 +2521,7 @@ function App() {
             </div>
 
             {/* 학기 탭 */}
-            <div className="flex gap-2 overflow-x-auto pb-2 shrink-0 custom-scrollbar mt-1">
+            <div id="subject-area" className="flex gap-2 overflow-x-auto pb-2 shrink-0 custom-scrollbar mt-1">
               {semesterTabs.map(tab=>{
                 const groupsInSem=GROUPS.filter(g=>g.semester===tab.id);
                 const isCompleted=groupsInSem.filter(g=>!g.isOptional).every(g=>selectedSubjects.filter(s=>s.group===g.id).length===g.maxPick);
@@ -2288,7 +2627,7 @@ function App() {
               return (
                 <div key={group.id} className="bg-white p-4 md:p-5 rounded-3xl shadow-sm border-[3px] border-slate-900 mb-4 lg:mb-5 h-fit">
                   <div className="flex justify-between items-center mb-3 pb-2 border-b-2 border-slate-100">
-                    <h3 className="text-xl lg:text-2xl font-extrabold text-slate-800">{group.name}</h3>
+                    <h3 className="text-xl lg:text-2xl font-extrabold text-slate-800 flex items-center gap-1.5">{group.name}<Term k={group.isSharedCampus?'공유캠퍼스':'선택군'}/></h3>
                     <span className={`text-sm lg:text-base font-bold px-3 py-1.5 rounded-lg ${isComplete?'bg-green-100 text-green-700':'bg-red-100 text-red-600'}`}>{isComplete?'✔ 선택 완료':`선택가능 (${group.maxPick-pickedCount})`}</span>
                   </div>
                   {group.notice&&(
@@ -2345,34 +2684,28 @@ function App() {
         {/* ── 오른쪽 패널 ── */}
         <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:w-full md:col-span-2' : ''}`}>
           
-          {/* 탭 버튼 (2단 그리드 적용) */}
-          <div className="grid grid-cols-3 gap-1.5 lg:gap-2 mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2">
-            {[
-              {id:'planner',icon:'📋',label:'나의 편제표'},
-              {id:'major',icon:'🗺️',label:'학과 가이드'},
-              {id:'subject',icon:'📚',label:'선택과목 가이드'},
-              {id:'university',icon:'🏛️',label:'대학별 이수권장'},
-              {id:'career',icon:'🎓',label:'나의 보고서'},
-            ].map(tab=>{
-              let activeClass = 'bg-blue-800 text-white shadow-md border-b-4 border-blue-900';
-              let inactiveClass = 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200 border-b-4 border-b-transparent';
-
-              return (
-                <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
-                  className={`flex items-center justify-center gap-1 sm:gap-1.5 px-1 sm:px-2 py-2 lg:py-2.5 rounded-xl font-bold text-[0.7rem] sm:text-sm lg:text-base transition-all ${activeTab===tab.id?activeClass:inactiveClass}`}>
-                  <span>{tab.icon}</span> <span className="whitespace-nowrap tracking-tight">{tab.label}</span>
+          {/* 메뉴: ① 진로 찾기 ② 과목 고르기 ③ 내 결과 ❓ 도움말 */}
+          <div className="mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2 flex flex-col gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5 lg:gap-2">
+              {MENU.map(m=>(
+                <button key={m.id} onClick={()=>goTab(m.tabs[0].id)}
+                  className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 px-1 py-2 lg:py-2.5 rounded-xl font-black text-xs sm:text-sm lg:text-base transition-all ${activeMenu.id===m.id?'bg-blue-800 text-white shadow-md border-b-4 border-blue-950':'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 border-b-4 border-b-transparent'}`}>
+                  <span>{m.icon}</span><span className="whitespace-nowrap">{m.num} {m.label}</span>
                 </button>
-              );
-            })}
-            
-            <button 
-              onClick={() => setIsRightPanelExpanded(!isRightPanelExpanded)}
-              className="hidden md:flex items-center justify-center gap-1 sm:gap-1.5 px-1 sm:px-2 py-2 lg:py-2.5 rounded-xl font-bold text-xs sm:text-sm lg:text-base transition-all bg-slate-700 text-white hover:bg-slate-800 shadow-md border-b-4 border-slate-900"
-              title={isRightPanelExpanded ? "좌우 화면 분할 복귀" : "우측 탭 화면 전체 확대"}
-            >
-              <span>{isRightPanelExpanded ? '▶◀' : '◀▶'}</span> 
-              <span className="whitespace-nowrap tracking-tight">{isRightPanelExpanded ? '원상복귀' : '화면확대'}</span>
-            </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {activeMenu.tabs.length>1&&activeMenu.tabs.map(t=>(
+                <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                  className={`px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm transition-colors ${activeTab===t.id?'bg-blue-600 text-white':'bg-white text-slate-600 border border-slate-300 hover:border-blue-400'}`}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+              <button onClick={() => setIsRightPanelExpanded(!isRightPanelExpanded)} title={isRightPanelExpanded ? "좌우 화면 분할 복귀" : "우측 탭 화면 전체 확대"}
+                className="hidden md:inline-flex ml-auto items-center gap-1 px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-slate-700 text-white hover:bg-slate-800">
+                {isRightPanelExpanded ? '▶◀ 원상복귀' : '◀▶ 화면확대'}
+              </button>
+            </div>
           </div>
 
           {/* 탭 내용들 */}
@@ -2642,6 +2975,181 @@ function App() {
               </div>
             )}
 
+            {/* ── 직업으로 찾기 ── */}
+            {activeTab==='job'&&(
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px]">
+                <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center mb-4 shadow-md">
+                  <h2 className="text-2xl lg:text-4xl font-black mb-2">💼 관심 직업으로 찾기</h2>
+                  <p className="text-blue-100 text-sm lg:text-lg font-medium break-keep">진로가 아직 막연하다면, 관심 있는 직업부터 골라 보세요. 관련 과목과 우리 학교 개설 학기를 알려 드립니다.</p>
+                </div>
+                {dbJobs.length===0?(
+                  <div className="p-8 text-center text-slate-500 font-bold border-2 border-dashed border-slate-300 rounded-2xl">시트의 [직업데이터] 탭에서 자료를 찾지 못했습니다.</div>
+                ):(<>
+                  <input value={jobQuery} onChange={e=>setJobQuery(e.target.value)} placeholder="직업 이름으로 찾기 (예: 간호, 교사, 개발)" aria-label="직업 찾기"
+                    className="w-full mb-3 px-4 py-3 rounded-xl border-2 border-blue-300 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"/>
+                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1 mb-4">
+                    {dbJobs.filter(j=>!jobQuery||normLoose(j.job).includes(normLoose(jobQuery))).map(j=>(
+                      <button key={j.job} onClick={()=>setSelectedJob(j.job)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${selectedJob===j.job?'bg-blue-700 text-white border-blue-700':'bg-white text-slate-700 border-slate-300 hover:border-blue-400'}`}>{j.job}</button>
+                    ))}
+                  </div>
+                  {!jobInfo?(
+                    <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">위에서 직업을 하나 골라 보세요. ({dbJobs.length}개 직업)</div>
+                  ):(
+                    <div className="flex flex-col gap-4">
+                      <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
+                        <div className="text-xl lg:text-2xl font-black text-blue-950 mb-1">{jobInfo.job}</div>
+                        <div className="text-sm text-slate-600 break-keep"><b>관련 과목:</b> {jobInfo.subjectsText}</div>
+                      </div>
+                      <div className="rounded-2xl border-2 border-slate-200 p-4">
+                        <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목</div>
+                        <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">괄호 안은 개설 학기입니다(2-1학기 = 2학년 1학기). <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 지정 과목, <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
+                        {jobInfo.matched.length?renderSubjectChips(jobInfo.matched):<p className="text-sm text-slate-500">우리 학교 과목명과 맞는 과목을 찾지 못했습니다.</p>}
+                        {jobInfo.notOffered.length>0&&<p className="mt-3 text-xs lg:text-sm text-slate-500 break-keep"><b>우리 학교에 없는 과목:</b> {jobInfo.notOffered.join(', ')} <span className="text-slate-400">(공동교육과정·온라인학교 등으로 들을 수 있는지 담임 선생님께 문의하세요)</span></p>}
+                      </div>
+                      <button onClick={()=>goTab('major')} className="self-start px-4 py-2 rounded-xl bg-white border-2 border-blue-400 text-blue-800 font-bold">🗺️ 관련 학과도 살펴보기 → 학과 가이드</button>
+                    </div>
+                  )}
+                </>)}
+              </div>
+            )}
+
+            {/* ── 과목 비교 ── */}
+            {activeTab==='compare'&&(
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px]">
+                <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center mb-4 shadow-md">
+                  <h2 className="text-2xl lg:text-4xl font-black mb-2">⚖️ 과목 비교</h2>
+                  <p className="text-blue-100 text-sm lg:text-lg font-medium break-keep">고민되는 과목을 최대 3개까지 나란히 비교합니다. 과목 안내 창의 [비교에 담기]로도 추가할 수 있습니다.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                  {compareNames.map((nm,i)=>(
+                    <select key={i} value={nm} onChange={e=>{const n=[...compareNames]; n[i]=e.target.value; setCompareNames(n);}} aria-label={`비교 과목 ${i+1}`}
+                      className="w-full p-3 text-base font-bold border-2 border-blue-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                      <option value="">과목 {i+1} 선택</option>
+                      {compareOptions.map(o=><option key={o.id} value={o.name}>[{normalizeType(o.type,o.name).replace(' (역사/도덕 포함)','')}] {o.name}</option>)}
+                    </select>
+                  ))}
+                </div>
+                {compareSubjects.every(x=>!x)?(
+                  <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">비교할 과목을 골라 주세요.</div>
+                ):(
+                  <div className="overflow-x-auto custom-scrollbar">
+                    <table className="w-full min-w-[560px] border-collapse text-sm lg:text-base table-fixed">
+                      <tbody>
+                        {[
+                          ['교과(군)', x=>x.type],
+                          ['선택 유형', x=><Term k={(x.popupData?.selType||'').trim()}>{x.popupData?.selType||'-'}</Term>],
+                          ['학점', x=>`${x.credits}학점`],
+                          ['개설 학기', x=>schoolSubjectIndex.find(o=>normLoose(o.name)===normLoose(x.name))?.semText||'-'],
+                          [<Term k="성취도">절대 평가</Term>, x=>x.popupData?.evalAbs||'-'],
+                          [<Term k="석차등급">상대 평가</Term>, x=>x.popupData?.evalRel||'-'],
+                          [<Term k="수능 출제">수능 출제</Term>, x=>x.csat||'-'],
+                          ['한 줄 소개', x=>x.popupData?.desc||x.desc||'-'],
+                          ['핵심 키워드', x=>x.popupData?.keywords||'-'],
+                          ['배우는 내용', x=>(x.popupData?.learn||[]).map(l=>l.area).filter(Boolean).join(', ')||'-'],
+                          ['이런 학생에게', x=>(x.popupData?.recommend||[]).slice(0,3).map((r,i)=><div key={i}>• {r}</div>)],
+                          ['추천 계열/학과', x=>{const r=getRecommenders(x); return r.length?`${new Set(r.map(v=>v.field)).size}개 계열, ${r.length}건`:'-';}],
+                        ].map(([label,fn],ri)=>(
+                          <tr key={ri} className="border-b border-slate-200 align-top">
+                            <th className="w-[18%] p-2 lg:p-3 bg-blue-50 text-blue-900 font-black text-left">{label}</th>
+                            {compareSubjects.map((x,ci)=><td key={ci} className="p-2 lg:p-3 font-medium text-slate-800 break-keep whitespace-pre-wrap">{x?fn(x):''}</td>)}
+                          </tr>
+                        ))}
+                        <tr>
+                          <th className="p-2 lg:p-3 bg-blue-50"></th>
+                          {compareSubjects.map((x,ci)=>(
+                            <td key={ci} className="p-2 lg:p-3">{x&&(
+                              <div className="flex flex-wrap gap-1.5">
+                                <button onClick={()=>setInfoModalSubject(x)} className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 font-bold text-sm">ℹ️ 자세히</button>
+                                {(schoolSubjectIndex.find(o=>normLoose(o.name)===normLoose(x.name))?.entries||[]).map(e=>(
+                                  <button key={e.id} onClick={()=>toggleSubject(e)} className={`px-3 py-1.5 rounded-lg font-bold text-sm ${selectedIds.includes(e.id)?'bg-slate-400 text-white':'bg-blue-600 text-white'}`}>
+                                    {selectedIds.includes(e.id)?'빼기':'담기'}{(schoolSubjectIndex.find(o=>normLoose(o.name)===normLoose(x.name))?.entries.length||0)>1?` (${groupMap[e.group]?.semester})`:''}
+                                  </button>
+                                ))}
+                              </div>
+                            )}</td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 조건 점검·공유 ── */}
+            {activeTab==='check'&&(
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px] gap-4">
+                <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center shadow-md">
+                  <h2 className="text-2xl lg:text-4xl font-black mb-2">🔎 조건 점검 · 공유</h2>
+                  <p className="text-blue-100 text-sm lg:text-lg font-medium break-keep">수강신청 조건을 모두 지켰는지 확인하고, 결과를 학부모님·담임 선생님께 보내세요.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl border-2 border-blue-200 p-3"><div className="text-xs font-bold text-slate-500">고른 과목</div><div className="text-2xl font-black text-blue-900">{requiredPicked}<span className="text-base text-slate-400">/{requiredPickTotal}</span></div></div>
+                  <div className="rounded-xl border-2 border-green-200 p-3"><div className="text-xs font-bold text-slate-500">충족한 조건</div><div className="text-2xl font-black text-green-700">{trackConditions.filter(c=>c.status==='pass').length}</div></div>
+                  <div className={`rounded-xl border-2 p-3 ${failCount?'border-red-300 bg-red-50':'border-slate-200'}`}><div className="text-xs font-bold text-slate-500">어긴 조건</div><div className={`text-2xl font-black ${failCount?'text-red-600':'text-slate-400'}`}>{failCount}</div></div>
+                </div>
+                <ul className="space-y-2">
+                  {trackConditions.map(item=>(
+                    <li key={item.key} className={`flex items-start gap-2 p-3 rounded-xl border text-sm lg:text-base font-bold ${item.status==='pass'?'border-green-300 bg-green-50':item.status==='fail'?'border-red-300 bg-red-50':'border-slate-200 bg-white'}`}>
+                      <span>{item.status==='pass'?'✅':item.status==='fail'?'⛔':'•'}</span>
+                      <div className="flex-1 break-keep"><div className={item.status==='fail'?'text-red-700':'text-slate-800'}>{item.displayOriginal}</div>{item.currentStatusText&&<div className="text-xs lg:text-sm font-medium text-slate-500 mt-0.5">{item.currentStatusText}</div>}</div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-4">
+                  <div className="font-black text-violet-900 mb-1">🔗 내 선택 공유하기</div>
+                  <p className="text-sm text-slate-600 mb-3 break-keep">링크를 받은 사람은 내가 고른 과목과 편제표를 <b>보기 전용</b>으로 볼 수 있습니다. 이름과 학번은 링크에 들어가지 않습니다.</p>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button onClick={shareMySelection} disabled={!!SHARED} className="px-4 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white font-black disabled:opacity-40">🔗 공유 링크 만들기</button>
+                    <button onClick={()=>goTab('career')} className="px-4 py-2.5 rounded-xl bg-white border-2 border-blue-400 text-blue-800 font-black">🎓 보고서 보기·인쇄</button>
+                    {shareMsg&&<span className="text-sm font-bold text-violet-800">{shareMsg}</span>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── 도움말 ── */}
+            {activeTab==='help'&&(
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px] gap-5">
+                <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center shadow-md">
+                  <h2 className="text-2xl lg:text-4xl font-black mb-2">❓ 도움말</h2>
+                  <p className="text-blue-100 text-sm lg:text-lg font-medium">처음 오신 학생·학부모님을 위한 안내입니다.</p>
+                </div>
+                <section>
+                  <h3 className="text-lg lg:text-xl font-black text-blue-900 mb-2">처음 오셨나요? 이렇게 사용하세요</h3>
+                  <ol className="space-y-2">
+                    {[
+                      ['① 진로 찾기','관심 직업이나 학과를 먼저 살펴봅니다. 진로가 정해지지 않았어도 괜찮습니다.'],
+                      ['② 과목 고르기','왼쪽에서 과정과 희망 계열·학과를 고르면 추천 과목에 표시가 뜹니다. 학기별로 [담기]를 눌러 과목을 고릅니다.'],
+                      ['③ 내 결과','조건을 모두 지켰는지 확인하고, 공유 링크나 보고서로 학부모님·담임 선생님과 함께 봅니다.'],
+                      ['저장','고른 내용은 지금 쓰는 기기(휴대폰·컴퓨터)에 자동으로 저장됩니다. 다른 기기에서 이어 하려면 공유 링크를 열고 [내 기기에 저장하고 수정하기]를 누르세요.'],
+                    ].map(([t,d])=><li key={t} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm lg:text-base break-keep"><b className="text-blue-800">{t}</b> — {d}</li>)}
+                  </ol>
+                </section>
+                <section>
+                  <h3 className="text-lg lg:text-xl font-black text-blue-900 mb-2">용어 풀이</h3>
+                  <dl className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                    {Object.entries(GLOSSARY).map(([k,v])=>(
+                      <div key={k} className="p-3 rounded-xl border border-slate-200 text-sm break-keep"><dt className="font-black text-slate-900">{k}</dt><dd className="text-slate-600 mt-0.5">{v}</dd></div>
+                    ))}
+                  </dl>
+                </section>
+                <section>
+                  <h3 className="text-lg lg:text-xl font-black text-blue-900 mb-2">자주 묻는 질문</h3>
+                  {[
+                    ['여기서 고르면 수강신청이 끝나나요?','아닙니다. 이 페이지는 과목을 미리 계획해 보는 곳입니다. 실제 수강신청은 학교에서 안내하는 일정과 방법으로 합니다.'],
+                    ['과목이 [담기]가 안 돼요.','선택군마다 고를 수 있는 과목 수와 조건이 있습니다. 화면 아래에 이유와 대신 담을 수 있는 과목이 나오니 확인해 보세요.'],
+                    ['학부모도 볼 수 있나요?','학생이 [③ 내 결과 → 공유 링크 만들기]로 링크를 보내면 같은 화면을 볼 수 있습니다.'],
+                    ['내용이 책자와 달라요.','책자와 학교 안내가 우선입니다. 다른 점을 발견하면 교육과정부에 알려 주세요.'],
+                  ].map(([q,a])=>(
+                    <details key={q} className="mb-2 p-3 rounded-xl border border-slate-200"><summary className="font-black text-slate-800 cursor-pointer">Q. {q}</summary><p className="mt-2 text-sm text-slate-600 break-keep">{a}</p></details>
+                  ))}
+                </section>
+                <p className="text-sm font-bold text-slate-500">문의: 담임 선생님 또는 교육과정부 · {SITE_CREDIT}</p>
+              </div>
+            )}
+
             {activeTab==='university'&&(
               <div className="bg-white rounded-3xl shadow-xl border border-slate-200 flex flex-col p-4 lg:p-6 min-h-[600px]">
                 <div className="bg-blue-900 text-white p-4 lg:p-6 rounded-2xl text-center shrink-0 mb-4 lg:mb-6 shadow-md">
@@ -2702,17 +3210,11 @@ function App() {
 
                         <div className="rounded-2xl border-2 border-slate-200 p-4">
                           <div className="font-black text-slate-800 mb-1">📋 우리 학교 과목과 비교</div>
-                          <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">권장 내용에 나오는 과목 중 우리 학교에서 배울 수 있는 과목과 개설 학기입니다(예: 2-1학기 = 2학년 1학기). <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 학교 지정 과목, <b className="text-rose-700">핵심</b>은 대학이 핵심 과목으로 밝힌 과목입니다.</p>
+                          <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep">권장 내용에 나오는 과목 중 우리 학교에서 배울 수 있는 과목과 개설 학기입니다(예: 2-1학기 = 2학년 1학기). <b className="text-green-700">✔ 초록색</b>은 이미 담았거나 학교 지정 과목, <b className="text-rose-700">핵심</b>은 대학이 핵심 과목으로 밝힌 과목입니다. <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
                           {univResultInfo.matched.length===0?(
                             <p className="text-sm text-slate-500">권장 내용에서 우리 학교 과목명을 찾지 못했습니다. 위 표의 내용을 직접 확인하세요.</p>
                           ):(
-                            <div className="flex flex-wrap gap-2">
-                              {univResultInfo.matched.map(m=>(
-                                <span key={m.name} className={`px-3 py-1.5 rounded-lg text-sm lg:text-base font-bold border-2 ${m.isSelected?'bg-green-50 border-green-500 text-green-800':'bg-white border-slate-300 text-slate-600'}`}>
-                                  {m.isSelected?'✔ ':''}{m.name}{(m.semText||m.kind==='mandatory')&&<span className="font-medium"> ({[m.semText,m.kind==='mandatory'?'지정':''].filter(Boolean).join(', ')})</span>}{m.isCore&&<span className="ml-1 text-xs text-white bg-rose-600 rounded px-1.5 py-0.5 align-middle">핵심</span>}
-                                </span>
-                              ))}
-                            </div>
+                            renderSubjectChips(univResultInfo.matched)
                           )}
                         </div>
                         <p className="text-xs text-slate-500 break-keep">※ 대학이 발표한 자료를 정리한 것입니다. 입시 요강은 해마다 바뀔 수 있으니 반드시 대학 입학처의 최신 자료를 확인하세요.</p>
@@ -2793,14 +3295,14 @@ function App() {
       {/* TOP 이동 고정 버튼 (메인 화면용 - 좌/우 양쪽 배치) */}
       <button
         onClick={() => scrollPaneTop(rightPaneRef)}
-        className="fixed bottom-6 right-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
+        className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[9989] flex items-center justify-center w-12 h-12 md:w-14 md:h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
         title="오른쪽 화면 맨 위로"
       >
         <span className="text-2xl font-black leading-none -mt-1">↑</span>
       </button>
       <button
         onClick={() => scrollPaneTop(leftPaneRef)}
-        className="fixed bottom-6 left-6 z-[9999] flex items-center justify-center w-14 h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
+        className="fixed bottom-20 md:bottom-6 left-4 md:left-6 z-[9989] flex items-center justify-center w-12 h-12 md:w-14 md:h-14 bg-slate-800 hover:bg-slate-900 text-white rounded-full shadow-2xl transition-transform hover:-translate-y-1 no-print border-2 border-slate-600 focus:outline-none"
         title="왼쪽 화면 맨 위로"
       >
         <span className="text-2xl font-black leading-none -mt-1">↑</span>
