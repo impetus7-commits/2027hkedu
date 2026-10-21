@@ -844,10 +844,9 @@ function App() {
   const [univKind, setUnivKind] = useState('전체');
   const [univRegion, setUnivRegion] = useState('전체');
   const univCacheRef = useRef({});
-  // 커리어넷 직업백과(시트 [커리어넷직업] 탭)와 진로상담 사례 — 직업을 고를 때마다 그때그때 받아 옴
+  // 커리어넷 직업백과(시트 [커리어넷직업] 탭) — 직업을 고를 때마다 그때그때 받아 옴
   const [cjob, setCjob] = useState({ key: '', data: null });
   const [cjobPick, setCjobPick] = useState(0);
-  const [counsel, setCounsel] = useState({ open: false, loading: false, error: '', data: null });
   const cjobCacheRef = useRef({});
   const [compareNames, setCompareNames] = useState(['', '', '']);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1436,12 +1435,14 @@ function App() {
         const jh = rows[0];
         const ji = { job: headerIndex(jh, '직업'), subs: headerIndex(jh, '휘경여고개설필요(관련)과목', '관련과목', '과목'),
                      does: headerIndex(jh, '하는일', '직업소개'), why: headerIndex(jh, '과목별추천이유', '추천이유'),
-                     field: headerIndex(jh, '계열', '분야'), majors: headerIndex(jh, '관련학과', '학과') };
+                     field: headerIndex(jh, '계열', '분야'), majors: headerIndex(jh, '관련학과'), majorWhy: headerIndex(jh, '학과별추천이유') };
         return rows.slice(1).map(r => {
           const reasons = {};
           cell(r, ji.why).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) reasons[normLoose(m[1])] = m[2].trim(); });
+          const majorWhy = {};   // '학과명: 이유' 한 줄씩
+          cell(r, ji.majorWhy).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) majorWhy[normLoose(m[1])] = m[2].trim(); });
           return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons, whyRaw: cell(r, ji.why), hasWhyColumn: ji.why !== -1,
-                   ai, field: cell(r, ji.field), majors: cell(r, ji.majors) };
+                   ai, field: cell(r, ji.field), majors: cell(r, ji.majors), majorWhy };
         }).filter(j => j.job);
       };
       const sheetJobs = parseJobRows(parsedJobs, false);
@@ -1907,7 +1908,7 @@ function App() {
   //   (글자 일부로 찾으면 '외국어 교사' 안의 '국어 교사'처럼 엉뚱하게 걸리므로 항목 단위로 비교)
   const jobNameParts = (name) => String(name || '').split('/').map(x => x.replace(/\(.*?\)/g, '').trim()).filter(x => x.length >= 2);
   useEffect(() => {
-    setCjobPick(0); setCounsel({ open: false, loading: false, error: '', data: null });
+    setCjobPick(0);
     if (!jobInfo) return;
     const key = jobNameParts(jobInfo.job).join('|');
     if (cjobCacheRef.current[key]) { setCjob({ key, data: cjobCacheRef.current[key] }); return; }
@@ -1924,15 +1925,6 @@ function App() {
              forecast: g('전망'), prepare: g('되는 길'), url: g('원문'), exact: d.exact > 0 && cjobPick < d.exact, all: d.rows.map(x => x[0]), updated: d.updated };
   }, [cjob, cjobPick]);
   const officialDeparts = official ? splitUnits(official.departs).map(x => x.trim()).filter(Boolean) : [];
-  const loadCounsel = async () => {
-    const word = (official && official.exact ? official.name : jobNameParts(jobInfo.job)[0]) || jobInfo.job;
-    setCounsel({ open: true, loading: true, error: '', data: null });
-    try {
-      const d = JSON.parse(await fetchSheet({ counsel: word }, 1));
-      if (!('ready' in d)) throw new Error('시트의 Apps Script를 새 버전으로 배포해야 합니다.');
-      setCounsel({ open: true, loading: false, error: '', data: d, word });
-    } catch (e) { setCounsel({ open: true, loading: false, error: e.message, data: null }); }
-  };
   const sheetJobMajors = useMemo(() => {
     if (!jobInfo) return [];
     if (jobInfo.majors) return splitUnits(jobInfo.majors).map(x => x.replace(/\s*등$/, '').trim()).filter(Boolean).slice(0, 6);
@@ -1946,6 +1938,15 @@ function App() {
     [...officialDeparts, ...sheetJobMajors].forEach(m => { const k = normLoose(m); if (k && !seen.has(k)) { seen.add(k); out.push(m); } });
     return out.slice(0, 8);
   }, [official, sheetJobMajors]);
+  // 학과별 추천 이유: 시트의 '학과별 추천 이유' → 없으면 학과데이터의 학과 소개 첫 문장
+  const majorReason = (m) => {
+    if (!jobInfo) return null;
+    const w = jobInfo.majorWhy?.[normLoose(m)];
+    if (w) return { text: w, kind: jobInfo.ai ? 'ai' : 'sheet' };
+    const g = guideDeptFor(m), desc = g && String(dbDepartmentDetails[g].desc || '').replace(/\s+/g, ' ').trim();
+    if (desc) { const first = (desc.match(/^.*?(?:다|요)\.(?=\s|$)/) || [desc])[0]; return { text: first.length > 110 ? first.slice(0, 108) + '…' : first, kind: 'intro' }; }
+    return null;
+  };
   const majorsFromAI = !!(jobInfo && jobInfo.ai && sheetJobMajors.some(m => !officialDeparts.some(o => normLoose(o) === normLoose(m))));
   // 구체적인 학과 이름(국어교육과) → 학과 가이드의 학과(언어 교과 교육과, 유사학과에 국어교육과)
   const guideDeptFor = (name) => {
@@ -2271,7 +2272,7 @@ function App() {
               const useOfficial = official && (official.exact || jobInfo.ai);
               const rows = [
                 ['하는 일', useOfficial&&official.does ? official.does : jobInfo.does, useOfficial&&official.does?'커리어넷':''],
-                ['관련 학과', jobMajors.join(', '), ''],
+                ['관련 학과', jobMajors.map(m=>{const w=majorReason(m); return w&&w.kind!=='intro'?`• ${m}: ${w.text}`:`• ${m}`;}).join('\n'), ''],
                 ...(official?[['적성·흥미',official.aptitude,'커리어넷'],['관련 자격',official.certi,'커리어넷'],['임금',official.wage,'커리어넷'],['일자리 전망',official.forecast,'커리어넷'],['되는 길',official.prepare,'커리어넷']]:[]),
               ].filter(r=>r[1]);
               const subjRows = [...jobInfo.matched.filter(m=>m.kind!=='mandatory'), ...jobInfo.matched.filter(m=>m.kind==='mandatory')];
@@ -3489,27 +3490,6 @@ function App() {
                         })()}
                         {jobInfo.notOffered.length>0&&<p className="mt-3 text-xs lg:text-sm text-slate-500 break-keep"><b>우리 학교에 없는 과목:</b> {jobInfo.notOffered.join(', ')} <span className="text-slate-400">(공동교육과정·온라인학교 등으로 들을 수 있는지 담임 선생님께 문의하세요)</span></p>}
                       </div>
-                      <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/40 p-4 break-keep">
-                        {!counsel.open?(
-                          <button onClick={loadCounsel} className="px-4 py-2 rounded-xl bg-white border-2 border-violet-400 text-violet-900 font-bold">💬 이 직업에 관한 진로상담 사례 보기</button>
-                        ):(<>
-                          <div className="font-black text-violet-950 mb-1">💬 이런 고민, 이렇게 상담했어요{counsel.word?` — '${counsel.word}'`:''}</div>
-                          {counsel.loading&&<p className="text-sm font-bold text-slate-500">상담 사례를 찾는 중…</p>}
-                          {counsel.error&&<p className="text-sm font-bold text-red-700">상담 사례를 불러오지 못했습니다. ({counsel.error})</p>}
-                          {counsel.data&&!counsel.data.ready&&<p className="text-sm font-bold text-slate-500">아직 준비되지 않았습니다. (선생님: 시트 메뉴 [🎓 대학 정보] → [🔑 커리어넷 인증키 저장])</p>}
-                          {counsel.data&&counsel.data.ready&&(counsel.data.items.length===0
-                            ?<p className="text-sm text-slate-500 font-bold">관련 상담 사례를 찾지 못했습니다.</p>
-                            :<div className="flex flex-col gap-2">{counsel.data.items.map((it,i)=>(
-                              <details key={i} className="rounded-xl border border-violet-200 bg-white p-3">
-                                <summary className="cursor-pointer font-bold text-slate-900">Q. {it.title}</summary>
-                                {it.q&&<p className="mt-2 text-sm text-slate-700 whitespace-pre-line"><b className="text-violet-800">고민</b> {it.q}{it.q.length>=400?'…':''}</p>}
-                                {it.a&&<p className="mt-2 text-sm text-slate-800 whitespace-pre-line"><b className="text-violet-800">상담 답변</b> {it.a}{it.a.length>=600?'…':''}</p>}
-                                <a href={it.link||'https://www.career.go.kr/'} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-xs font-bold text-violet-800 underline">커리어넷에서 전체 보기</a>
-                              </details>
-                            ))}</div>)}
-                          <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 진로상담(교육부·한국직업능력연구원). 내 고민은 담임·진로 선생님과도 꼭 이야기해 보세요.</p>
-                        </>)}
-                      </div>
                       {!univPanel.open?(
                         <button onClick={()=>setUnivPanel(p=>({...p,open:true}))}
                           className="w-full flex items-center justify-center gap-3 px-5 py-4 rounded-2xl bg-gradient-to-r from-mblue-600 to-mblue-800 hover:from-mblue-700 hover:to-mblue-900 text-white text-lg lg:text-xl font-black shadow-lg ring-4 ring-mblue-200 transition-transform active:scale-[0.98]">
@@ -3524,14 +3504,25 @@ function App() {
                           {jobMajors.length===0?(
                             <p className="text-sm text-slate-500 break-keep">이 직업과 연결된 학과를 찾지 못했습니다. <button onClick={()=>goTab('major')} className="underline font-bold text-blue-800">학과 가이드</button>에서 찾아보세요.</p>
                           ):(<>
-                            <p className="text-xs lg:text-sm text-slate-500 mb-2 break-keep">학과를 누르면 그 학과가 있는 4년제·전문대학을 보여 드립니다.</p>
-                            <div className="flex flex-wrap gap-2 mb-3">
-                              {jobMajors.map(m=>(
-                                <span key={m} className="inline-flex items-center gap-1">
-                                  <button onClick={()=>loadUniversities(m)} className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${univPanel.major===m?'bg-indigo-700 text-white border-indigo-700':'bg-white text-indigo-900 border-indigo-300 hover:border-indigo-500'}`}>{m}</button>
-                                  {(()=>{const g=guideDeptFor(m); return g&&<button onClick={()=>{setGuideSelectedField(dbDepartmentDetails[g].field);setGuideSelectedMajor(g);goTab('major');}} title={g!==m?`학과 가이드: ${g}`:undefined} className="text-xs font-bold text-blue-700 underline">학과 가이드</button>;})()}
-                                </span>
-                              ))}
+                            <p className="text-xs lg:text-sm text-slate-500 mb-2 break-keep">학과 이름을 누르면 그 학과가 있는 4년제·전문대학을 보여 드립니다.</p>
+                            <div className="flex flex-col gap-2 mb-3">
+                              {jobMajors.map(m=>{
+                                const why=majorReason(m), g=guideDeptFor(m), fromOfficial=officialDeparts.some(o=>normLoose(o)===normLoose(m));
+                                return (
+                                  <div key={m} className={`flex flex-col sm:flex-row sm:items-start gap-2 p-2.5 rounded-xl border-2 bg-white ${univPanel.major===m?'border-indigo-500':'border-indigo-100'}`}>
+                                    <div className="shrink-0 flex items-center gap-1.5 sm:w-[34%]">
+                                      <button onClick={()=>loadUniversities(m)} className={`px-3 py-1.5 rounded-full text-sm lg:text-base font-black border-2 text-left ${univPanel.major===m?'bg-indigo-700 text-white border-indigo-700':'bg-white text-indigo-900 border-indigo-300 hover:border-indigo-500'}`}>{m} ›</button>
+                                      {fromOfficial&&<span className="text-[10px] font-black text-mblue-800 bg-mblue-100 rounded px-1">직업백과</span>}
+                                    </div>
+                                    <div className="flex-1 text-sm lg:text-base text-slate-700 break-keep leading-relaxed">
+                                      {why?(<>
+                                        <span className="font-black text-indigo-800">{why.kind==='intro'?'학과 소개':'추천 이유'}</span>{why.kind==='ai'&&<span className="ml-1 text-[10px] font-black text-red-700 bg-red-100 border border-red-300 rounded px-1">AI추천</span>} {why.text}
+                                      </>):<span className="text-slate-400">이 학과의 설명이 아직 없습니다.</span>}
+                                      {g&&<button onClick={()=>{setGuideSelectedField(dbDepartmentDetails[g].field);setGuideSelectedMajor(g);goTab('major');}} title={g!==m?`학과 가이드: ${g}`:undefined} className="ml-2 text-xs font-bold text-blue-700 underline whitespace-nowrap">학과 가이드 ›</button>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </>)}
                           {univPanel.major&&(()=>{
