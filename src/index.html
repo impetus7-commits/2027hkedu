@@ -1255,7 +1255,9 @@ function App() {
 
       if(parsedUnivRecs&&parsedUnivRecs.length>0){
         let headerRowIdx=0;
-        for(let i=0;i<Math.min(10,parsedUnivRecs.length);i++){
+        const isHeadRow=r=>{ const cs=r.map(x=>String(x??'').replace(/\s+/g,'')); return cs.some(x=>/^대학(교|명)?$/.test(x))&&cs.some(x=>/계열|학부|학과|모집단위/.test(x)); };
+        headerRowIdx=parsedUnivRecs.slice(0,10).findIndex(isHeadRow);
+        if(headerRowIdx===-1) for(let i=0;i<Math.min(10,parsedUnivRecs.length);i++){
           const rowStr=parsedUnivRecs[i].join('');
           if(rowStr.includes('대학')||rowStr.includes('모집')||rowStr.includes('권장')||rowStr.includes('학과')){ headerRowIdx=i; break; }
         }
@@ -1265,26 +1267,37 @@ function App() {
         //  · 대학·계열 칸이 세로로 합쳐져 비면 → 위 칸 값을 이어 씀
         //  · 그 밖의 열(구분, 비고 등)은 제목과 함께 '참고'로 보여 줌
         const rawHead=parsedUnivRecs[headerRowIdx].map(h=>String(h??'').replace(/"/g,'').trim());
+        // 제목이 두 줄(예: '반영과목' 아래 '핵심 | 권장')이면 아랫줄 이름을 붙여 씀
+        const sub=(parsedUnivRecs[headerRowIdx+1]||[]).map(x=>String(x??'').trim());
+        if(sub.some(x=>/핵심|권장/.test(x))) sub.forEach((x,i)=>{ if(/핵심|권장|비고/.test(x)) rawHead[i]=(rawHead[i]&&!/반영|과목/.test(rawHead[i].replace(/\s+/g,''))?rawHead[i]+' ':'')+x+(/핵심|권장/.test(x)&&!/과목/.test(x)?' 반영과목':''); });
         const H=rawHead.map(h=>h.replace(/\s+/g,''));
         const isRec=h=>/권장|핵심|이수과목|과목/.test(h);
-        let idxUniv=H.findIndex(h=>h==='대학'||h==='대학교'||h==='대학명');
-        if(idxUniv===-1) idxUniv=H.findIndex(h=>h.includes('대학')&&!/단과|학과|학부|권장|과목|구분|유형/.test(h));
-        let deptCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&/학부|학과|모집단위|전공/.test(H[i])&&!isRec(H[i]));
-        let collegeCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&/단과|계열/.test(H[i])&&!isRec(H[i]));
-        if(idxUniv===-1) idxUniv=H.length>=5?2:0;                                   // 제목이 없으면 C=대학
-        if(!deptCols.length&&H.length>=5){ collegeCols=[3]; deptCols=[4]; }          //            D=계열, E=학부(학과)
-        if(!deptCols.length) deptCols=[H.length>3?2:1];
-        if(!collegeCols.length&&deptCols[0]>=2) collegeCols=[deptCols[0]-1];
+        // 새 형식(C=대학, D=계열, E=학부(학과))이면 자리로 정함 / 아니면 제목 이름으로 찾기(예전 4열 형식)
+        const cde=H.length>=5&&(H[2].includes('대학')||H[3].includes('계열')||/학부|학과/.test(H[4]));
+        let idxUniv, deptCols, collegeCols;
+        if(cde){ idxUniv=2; collegeCols=[3]; deptCols=[4]; }
+        else {
+          idxUniv=H.findIndex(h=>h==='대학'||h==='대학교'||h==='대학명');
+          if(idxUniv===-1) idxUniv=H.findIndex(h=>h.includes('대학')&&!/단과|학과|학부|권장|과목|구분|유형/.test(h));
+          deptCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&/학부|학과|모집단위|전공/.test(H[i])&&!isRec(H[i]));
+          collegeCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&/단과|계열/.test(H[i])&&!isRec(H[i]));
+          if(idxUniv===-1) idxUniv=0;
+          if(!deptCols.length) deptCols=[H.length>3?2:1];
+          if(!collegeCols.length&&deptCols[0]>=2) collegeCols=[deptCols[0]-1];
+        }
         const idxDept=deptCols[deptCols.length-1];
         const idxCollege=collegeCols.includes(idxDept-1)?idxDept-1:collegeCols[collegeCols.length-1];
         const otherColleges=collegeCols.filter(i=>i!==idxCollege);
-        const recCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&!collegeCols.includes(i)&&isRec(H[i]));
-        const idxCore=recCols.find(i=>H[i].includes('핵심'));
+        const used=i=>i===idxUniv||deptCols.includes(i)||collegeCols.includes(i);
+        let recCols=H.map((h,i)=>i).filter(i=>!used(i)&&isRec(H[i])&&(!cde||i>4));
+        if(cde&&!recCols.length&&H.length>=7) recCols=[5,6];
+        const idxCore=recCols.find(i=>H[i].includes('핵심'))??(cde&&recCols.length>=2&&!recCols.some(i=>/권장/.test(H[i]))?recCols[0]:undefined);
         const recOnly=recCols.filter(i=>i!==idxCore);
-        const extraCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&!collegeCols.includes(i)&&!recCols.includes(i)&&H[i]&&!/^(번호|연번|순번|no\.?)$/i.test(H[i]));
+        let extraCols=H.map((h,i)=>i).filter(i=>!used(i)&&!recCols.includes(i)&&H[i]&&!/^(번호|연번|순번|no\.?)$/i.test(H[i])&&!(cde&&/대학|계열|학과|학부|단과|모집단위/.test(H[i])));
+        if(cde&&!extraCols.some(i=>/비고/.test(H[i]))&&H.length>=8&&!H[7]&&!recCols.includes(7)) extraCols.push(7);   // 제목 없는 H열 = 비고
         const val=(row,i)=>i!=null&&i!==-1&&row[i]!=null?String(row[i]).trim():'';
         const univData=[]; let lastUniv='',lastCollege='',lastOther={},lastExtra={};
-        const noFill=i=>/비고|참고|메모|설명/.test(H[i]);
+        const noFill=i=>!H[i]||/비고|참고|메모|설명/.test(H[i]);
         parsedUnivRecs.slice(headerRowIdx+1).forEach(row=>{
           let u=val(row,idxUniv);
           if(u&&u!==lastUniv){ lastUniv=u; lastCollege=''; lastOther={}; lastExtra={}; } else u=lastUniv;
@@ -1299,7 +1312,7 @@ function App() {
           else { c=lastCollege; d=lastCollege; }
           const prefix=otherColleges.map(i=>lastOther[i]).filter(Boolean);
           const college=[...prefix,c].filter(Boolean).join(' · ')||'전체/공통';
-          const extras=extraCols.map(i=>{ let v=val(row,i); if(v) lastExtra[i]=v; else if(!noFill(i)) v=lastExtra[i]||''; return {label:rawHead[i],value:v}; }).filter(x=>x.value);
+          const extras=extraCols.map(i=>{ let v=val(row,i); if(v) lastExtra[i]=v; else if(!noFill(i)) v=lastExtra[i]||''; return {label:rawHead[i]||'비고',value:v}; }).filter(x=>x.value);
           const note=extras.filter(x=>/비고|참고|메모/.test(x.label)).map(x=>x.value).join('\n');
           const info=extras.filter(x=>!/비고|참고|메모/.test(x.label));
           if(u&&d&&u!=='대학'&&!/^(모집단위|학과명|학과|학부\(학과\))$/.test(d)) univData.push({univ:u,college,dept:d,core,rec,extras:info,note,split:idxCore!=null&&recOnly.length>0});
