@@ -542,21 +542,47 @@ const DEFAULT_GLOSSARY = {
 };
 let GLOSSARY = { ...DEFAULT_GLOSSARY };
 // 용어 옆 ⓘ: 누르면 짧은 설명이 열림
+//  설명 상자는 화면 맨 위층(body)에 띄움 → 좌우로 나뉜 스크롤 칸에 가려지지 않음. 버튼 옆, 화면 안쪽으로 자리 잡음
 function Term({ k, children, className = '' }) {
-  const [open, setOpen] = React.useState(false);
+  const [pos, setPos] = React.useState(null);
+  const btnRef = React.useRef(null);
+  const boxRef = React.useRef(null);
   const text = GLOSSARY[k];
+  const close = React.useCallback(() => setPos(null), []);
+  React.useLayoutEffect(() => {
+    if (!pos || pos.placed || !boxRef.current || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect(), box = boxRef.current.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight, gap = 6, pad = 8;
+    const left = Math.min(Math.max(pad, r.left), vw - box.width - pad);
+    const below = r.bottom + gap, above = r.top - gap - box.height;
+    const top = (below + box.height <= vh - pad || above < pad) ? Math.min(below, Math.max(pad, vh - box.height - pad)) : above;
+    setPos({ left, top, placed: true });
+  }, [pos]);
+  React.useEffect(() => {
+    if (!pos) return;
+    const onDown = (e) => { if (!boxRef.current?.contains(e.target) && !btnRef.current?.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    // 스크롤·화면 크기가 바뀌면 버튼을 따라 다시 자리 잡기 (버튼이 화면 밖으로 나가면 닫기)
+    const follow = () => { const r = btnRef.current?.getBoundingClientRect();
+      if (!r || r.bottom < 0 || r.top > window.innerHeight) close(); else setPos(p => p && { ...p, placed: false }); };
+    window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow);
+    document.addEventListener('mousedown', onDown); document.addEventListener('touchstart', onDown); document.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow);
+      document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); document.removeEventListener('keydown', onKey); };
+  }, [!!pos]);
   if (!text) return <>{children}</>;
   return (
     <span className={`relative inline-flex items-center gap-0.5 ${className}`}>
       {children}
-      <button type="button" aria-label={`${k} 뜻 보기`} onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}
+      <button ref={btnRef} type="button" aria-label={`${k} 뜻 보기`} aria-expanded={!!pos}
+        onClick={e => { e.preventDefault(); e.stopPropagation(); setPos(pos ? null : { left: -9999, top: 0, placed: false }); }}
         className="no-print inline-flex items-center justify-center w-4 h-4 text-[10px] leading-none font-black rounded-full bg-slate-200 text-slate-600 hover:bg-blue-600 hover:text-white align-middle">i</button>
-      {open && (
-        <span onClick={e => { e.stopPropagation(); setOpen(false); }}
-          className="absolute left-0 top-full mt-1 z-[2000] w-64 max-w-[80vw] p-3 rounded-xl bg-slate-900 text-white text-xs lg:text-sm font-medium leading-relaxed shadow-xl text-left whitespace-normal break-keep cursor-pointer">
+      {pos && ReactDOM.createPortal(
+        <span ref={boxRef} role="tooltip" data-term-tip={k} onClick={e => { e.stopPropagation(); close(); }}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, visibility: pos.left === -9999 ? 'hidden' : 'visible' }}
+          className="no-print z-[10050] w-72 max-w-[calc(100vw-16px)] max-h-[70vh] overflow-y-auto p-3 rounded-xl bg-slate-900 text-white text-xs lg:text-sm font-medium leading-relaxed shadow-xl text-left whitespace-normal break-keep cursor-pointer">
           <b className="block mb-1 text-blue-200">{k}</b>{text}<span className="block mt-1 text-[10px] text-slate-400">(눌러서 닫기)</span>
-        </span>
-      )}
+        </span>, document.body)}
     </span>
   );
 }
@@ -847,6 +873,9 @@ function App() {
   const [sciencePopupPos, setSciencePopupPos] = useState({ x: 20, y: 120 });
   const [isDraggingScience, setIsDraggingScience] = useState(false);
   const dragScienceOffset = useRef({ x: 0, y: 0 });
+  // 팝업이 화면 아래로 넘치지 않도록 현재 창 높이를 기억 (휴대폰 주소창이 접히고 펴질 때도 갱신)
+  const [viewH, setViewH] = useState(() => window.innerHeight);
+  useEffect(() => { const f = () => setViewH(window.innerHeight); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
 
   const [generalPopupPos, setGeneralPopupPos] = useState({ x: 20, y: 120 });
   const [isDraggingGeneral, setIsDraggingGeneral] = useState(false);
@@ -889,7 +918,7 @@ function App() {
   useEffect(() => {
     if (infoModalSubject) {
       const modalWidth = Math.min(window.innerWidth * 0.95, 900);
-      const initialPos = { x: Math.max(0, (window.innerWidth - modalWidth) / 2), y: Math.max(10, window.innerHeight * 0.1) };
+      const initialPos = { x: Math.max(0, (window.innerWidth - modalWidth) / 2), y: Math.round(Math.max(8, Math.min(window.innerHeight * 0.1, 80))) };
       setInfoPopupPos(initialPos);
     }
   }, [infoModalSubject]);
@@ -2404,12 +2433,12 @@ function App() {
 
       {/* 과목 상세 팝업 */}
       {infoModalSubject&&(
-        <div className="fixed z-[1000] bg-white rounded-3xl shadow-[0_30px_60px_rgba(0,0,0,0.4)] border-2 border-blue-400 w-[95%] max-w-[900px] flex flex-col pointer-events-auto draggable-popup" style={{left:`${infoPopupPos.x}px`,top:`${infoPopupPos.y}px`,margin:0}}>
+        <div className="fixed z-[9995] bg-white rounded-3xl shadow-[0_30px_60px_rgba(0,0,0,0.4)] border-2 border-blue-400 w-[95%] max-w-[900px] flex flex-col pointer-events-auto draggable-popup" style={{left:`${infoPopupPos.x}px`,top:`${infoPopupPos.y}px`,margin:0,maxHeight:`${Math.max(240,viewH-infoPopupPos.y-8)}px`}}>
           <div onMouseDown={handleInfoDragStart} onTouchStart={handleInfoDragStart} className="cursor-move flex items-center p-4 lg:p-6 border-b bg-blue-50 rounded-t-3xl select-none" style={{touchAction:'none'}}>
             <button onClick={()=>setInfoModalSubject(null)} className="text-blue-500 hover:text-white hover:bg-blue-500 bg-white border-2 border-blue-200 rounded-full w-10 h-10 flex items-center justify-center text-2xl font-bold transition-colors shadow-sm mr-4 shrink-0">✕</button>
             <h3 className="text-2xl lg:text-3xl font-black text-blue-900 tracking-tight pointer-events-none flex-1 text-left">{infoModalSubject.name}</h3>
           </div>
-          <div className="p-4 lg:p-6 space-y-6 rounded-b-3xl max-h-[70vh] overflow-y-auto custom-scrollbar bg-white">
+          <div className="p-4 lg:p-6 space-y-6 rounded-b-3xl flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white">
             <div className="flex gap-2 items-center mb-2">
               <span className="bg-slate-100 border border-slate-300 text-slate-700 px-5 py-2 rounded-full font-extrabold text-base">{infoModalSubject.type||'교과군'}</span>
               <span className="bg-blue-100 border border-blue-200 text-blue-800 px-5 py-2 rounded-full font-extrabold text-base"><Term k={(infoModalSubject.popupData?.selType||'일반 선택').replace(/\s+/g,' ').trim()}>{infoModalSubject.popupData?.selType||'일반 선택'}</Term></span>
@@ -3566,7 +3595,7 @@ function App() {
 
       {/* 과학중점 과정 팝업 */}
       {isScienceTrack&&showSciencePopup&&(
-        <div className="fixed z-[1000] w-[340px] md:w-[450px] shadow-2xl rounded-2xl border-[3px] flex flex-col overflow-hidden no-print bg-yellow-50 border-yellow-500 draggable-popup" style={{left:`${sciencePopupPos.x}px`,top:`${sciencePopupPos.y}px`}}>
+        <div className="fixed z-[9995] w-[340px] max-w-[calc(100vw-20px)] md:w-[450px] shadow-2xl rounded-2xl border-[3px] flex flex-col overflow-hidden no-print bg-yellow-50 border-yellow-500 draggable-popup" style={{left:`${sciencePopupPos.x}px`,top:`${sciencePopupPos.y}px`,maxHeight:`${Math.max(200,viewH-sciencePopupPos.y-(isMobile()?76:12))}px`}}>
           <div onMouseDown={handleScienceDragStart} onTouchStart={handleScienceDragStart} className="cursor-move p-4 flex justify-between items-center select-none bg-yellow-200 text-yellow-900 border-b border-yellow-300" style={{touchAction:'none'}}>
             <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 pointer-events-none">
               <span className="font-extrabold text-base">⚠️ 과학 중점 과정 요건 안내</span>
@@ -3574,7 +3603,7 @@ function App() {
             </div>
             <button onClick={()=>setShowSciencePopup(false)} className="hover:opacity-70 p-1 bg-white/50 rounded-full text-xl self-start sm:self-auto">✕</button>
           </div>
-          <div className="p-5 max-h-[350px] overflow-y-auto custom-scrollbar">
+          <div className="p-5 max-h-[350px] flex-1 min-h-0 overflow-y-auto custom-scrollbar">
             <ul className="space-y-4">
               {evaluatedConditions.filter(c=>c.track!=='일반')
                 .map((item)=>(
@@ -3599,7 +3628,7 @@ function App() {
 
       {/* 일반 과정 팝업 */}
       {isGeneralTrack&&showGeneralPopup&&(
-        <div className="fixed z-[1000] w-[340px] md:w-[450px] shadow-2xl rounded-2xl border-[3px] flex flex-col overflow-hidden no-print bg-orange-50 border-orange-500 draggable-popup" style={{left:`${generalPopupPos.x}px`,top:`${generalPopupPos.y}px`}}>
+        <div className="fixed z-[9995] w-[340px] max-w-[calc(100vw-20px)] md:w-[450px] shadow-2xl rounded-2xl border-[3px] flex flex-col overflow-hidden no-print bg-orange-50 border-orange-500 draggable-popup" style={{left:`${generalPopupPos.x}px`,top:`${generalPopupPos.y}px`,maxHeight:`${Math.max(200,viewH-generalPopupPos.y-(isMobile()?76:12))}px`}}>
           <div onMouseDown={handleGeneralDragStart} onTouchStart={handleGeneralDragStart} className="cursor-move p-4 flex justify-between items-center select-none bg-orange-200 text-orange-900 border-b border-orange-300" style={{touchAction:'none'}}>
             <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 pointer-events-none">
               <span className="font-extrabold text-base">📋 일반 과정 요건 안내</span>
@@ -3607,7 +3636,7 @@ function App() {
             </div>
             <button onClick={()=>setShowGeneralPopup(false)} className="hover:opacity-70 p-1 bg-white/50 rounded-full text-xl self-start sm:self-auto">✕</button>
           </div>
-          <div className="p-5 max-h-[350px] overflow-y-auto custom-scrollbar">
+          <div className="p-5 max-h-[350px] flex-1 min-h-0 overflow-y-auto custom-scrollbar">
             <ul className="space-y-4">
               {evaluatedConditions.filter(c=>c.track!=='과학중점')
                 .map((item)=>(
