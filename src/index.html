@@ -56,14 +56,15 @@
     }
 
     @media print {
-      @page { margin: 8mm 12mm; } 
+      /* 쪽 아래 가운데: - 쪽번호 / 총쪽수 - */
+      @page { margin: 8mm 12mm 12mm; @bottom-center { content: "- " counter(page) " / " counter(pages) " -"; font-size: 9pt; color: #374151; font-family: sans-serif; } } 
       html, body {
         width: 100% !important; height: auto !important; overflow: visible !important;
         background: white !important; margin: 0 !important; padding: 0 !important;
         -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
       }
-      @page landscape-mode { size: A4 landscape; margin: 10mm; }
-      @page portrait-mode { size: A4 portrait; margin: 8mm 12mm; }
+      @page landscape-mode { size: A4 landscape; margin: 10mm 10mm 12mm; @bottom-center { content: "- " counter(page) " / " counter(pages) " -"; font-size: 9pt; color: #374151; font-family: sans-serif; } }
+      @page portrait-mode { size: A4 portrait; margin: 8mm 12mm 12mm; @bottom-center { content: "- " counter(page) " / " counter(pages) " -"; font-size: 9pt; color: #374151; font-family: sans-serif; } }
       .print-landscape { page: landscape-mode; page-break-after: always; break-after: page; }
       .print-portrait { page: portrait-mode; }
       .no-print, #main-app, button, header, nav, .fixed { display: none !important; }
@@ -89,7 +90,11 @@
       table, th, td { border-color: #4b5563 !important; }
       .overflow-hidden, .overflow-y-auto, .overflow-x-auto { overflow: visible !important; }
       [style*="height"], .h-full, .min-h-screen { height: auto !important; min-height: 0 !important; }
-      .report-section { page-break-inside: avoid; margin-bottom: 12px !important; }
+      /* 긴 단락(진로 가이드·관심 직업 등)은 쪽을 넘겨 이어지게 하고, 제목만 홀로 남지 않게 / 표의 한 줄은 쪽 사이에서 잘리지 않게 */
+      .report-section { page-break-inside: auto; break-inside: auto; margin-bottom: 12px !important; }
+      .report-section > h3 { break-after: avoid; page-break-after: avoid; }
+      .report-section tr, .report-section th, .report-section td { break-inside: avoid; page-break-inside: avoid; }
+      .print-tight-guide { break-inside: auto !important; page-break-inside: auto !important; }
 
       .print-tight-section { margin-bottom: 10px !important; }
       .print-tight-title { margin-bottom: 10px !important; }
@@ -2208,7 +2213,7 @@ function App() {
       badge:      { fontSize:'0.7rem', fontWeight:700, color:'#4b5563', background:'#e5e7eb', padding:'2px 8px', borderRadius:'6px' },
       badgeBlue:  { fontSize:'0.7rem', fontWeight:700, color:'#005F33', background:'#E6F6EC', padding:'2px 8px', borderRadius:'6px' },
       ulBox:      { background:'white', padding:'12px', borderRadius:'8px', border:'1px solid #e5e7eb', listStyle:'none', margin:0 },
-      guideBox:   { border:'1px solid #d1d5db', borderRadius:'12px', padding:'16px', background:'#f9fafb', display:'flex', flexDirection:'column', gap:'16px', pageBreakInside:'avoid', breakInside:'avoid' },
+      guideBox:   { border:'1px solid #d1d5db', borderRadius:'12px', padding:'16px', background:'#f9fafb', display:'flex', flexDirection:'column', gap:'16px' },
     };
 
     return (
