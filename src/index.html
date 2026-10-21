@@ -49,6 +49,7 @@
     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
     /* Drag helper styles */
+    @media print { html { font-size: 16px !important; } }
     .draggable-popup {
       touch-action: none;
       user-select: none;
@@ -810,12 +811,19 @@ function App() {
   const [activeTab, setActiveTab] = useState('planner');
   const [activeSemesterTab, setActiveSemesterTab] = useState('2-1');
   const [isRightPanelExpanded, setIsRightPanelExpanded] = useState(false);
+  // 글자 크기 (화면 전체가 rem 단위라 html 글자 크기만 바꾸면 함께 커짐) · 넓은 모니터는 처음부터 '크게'
+  const FONT_KEY = 'hwikyung_font';
+  const FONT_STEPS = { base: 16, lg: 18, xl: 20.5 };
+  const [fontStep, setFontStep] = useState(() => { try { const v = localStorage.getItem(FONT_KEY); if (FONT_STEPS[v]) return v; } catch (e) {} return window.innerWidth >= 1440 ? 'lg' : 'base'; });
+  useEffect(() => { document.documentElement.style.fontSize = FONT_STEPS[fontStep] + 'px'; setSplitPct(v => clampSplit(v)); }, [fontStep]);
+  const chooseFont = (v) => { setFontStep(v); try { localStorage.setItem(FONT_KEY, v); } catch (e) {} };
   // 좌우 화면 비율 (왼쪽 %, PC에서 가운데 막대를 끌어 조절 · 이 기기에 기억)
   const SPLIT_KEY = 'hwikyung_split';
   //  왼쪽은 최소 380px(과목 카드 2줄), 오른쪽은 최소 460px(편제표)가 되도록 막음
   const clampSplit = (v) => {
     const w = (document.querySelector('main')?.clientWidth) || window.innerWidth;
-    const lo = Math.max(25, Math.ceil(380 / w * 100)), hi = Math.min(75, Math.floor(100 - 460 / w * 100));
+    const k = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16;   // 글자를 키우면 최소 너비도 함께
+    const lo = Math.max(25, Math.ceil(380 * k / w * 100)), hi = Math.min(75, Math.floor(100 - 460 * k / w * 100));
     return Math.min(Math.max(lo, hi), Math.max(lo, Math.round(v)));
   };
   const [splitPct, setSplitPct] = useState(() => { try { const v = parseFloat(localStorage.getItem(SPLIT_KEY)); return isNaN(v) ? 50 : clampSplit(v); } catch (e) { return 50; } });
@@ -839,6 +847,10 @@ function App() {
   const [dbJobs, setDbJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState('');
   const [jobQuery, setJobQuery] = useState('');
+  const [jobField, setJobField] = useState('');          // 계열로 둘러보기
+  const [jobShowAll, setJobShowAll] = useState(false);
+  const RECENT_JOBS_KEY = 'hwikyung_recent_jobs';
+  const [recentJobs, setRecentJobs] = useState(() => { try { return JSON.parse(localStorage.getItem(RECENT_JOBS_KEY) || '[]'); } catch (e) { return []; } });
   // 관련 학과 → 개설 대학 (시트 [대학학과정보] 탭에서 그때그때 받아 옴)
   const [univPanel, setUnivPanel] = useState({ open: false, major: '', loading: false, error: '', data: null });
   const [univKind, setUnivKind] = useState('전체');
@@ -913,7 +925,8 @@ function App() {
     const ro = new ResizeObserver(([e]) => setLeftW(Math.round(e.contentRect.width))); ro.observe(el);
     return () => ro.disconnect();
   }, [isLoading]);
-  const cardCols = leftW >= 640 ? 'grid-cols-4' : leftW >= 470 ? 'grid-cols-3' : 'grid-cols-2';
+  const fontK = ({ base: 16, lg: 18, xl: 20.5 }[fontStep] || 16) / 16;
+  const cardCols = leftW >= 640 * fontK ? 'grid-cols-4' : leftW >= 470 * fontK ? 'grid-cols-3' : 'grid-cols-2';
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -1871,7 +1884,7 @@ function App() {
     setSearchQuery('');
     if (kind === 'subject') setInfoModalSubject(item);
     if (kind === 'dept') { setGuideSelectedField(item.field); setGuideSelectedMajor(item.name); goTab('major'); }
-    if (kind === 'job') { setSelectedJob(item.job); goTab('job'); }
+    if (kind === 'job') { goTab('job'); pickJob(item.job); }
     if (kind === 'univ') { setUnivSel({ univ: item.univ, college: item.college, unit: item.unit }); goTab('university'); }
   };
 
@@ -1894,6 +1907,39 @@ function App() {
     const jobName = j.job.split('/')[0].replace(/\(.*\)/, '').trim();
     return { reason: `${jobName} 일에 필요한 ${area} 분야의 바탕을 다질 수 있어서 → ${learn || `${m.name}의 핵심 내용을 배워요.`}`, reasonFromSheet: false };
   };
+  // ── 직업 찾기: 하나의 목록(직업데이터 + AI직업데이터)에서 이름·학과·과목·하는 일로 찾기 ──
+  const JOB_FIELDS = [['인문','📖'],['사회','⚖️'],['경영·경제','💼'],['교육','🍎'],['자연과학','🔬'],['공학','⚙️'],['IT·정보','💻'],['의약·보건','🏥'],['예술·체육','🎨'],['생활·서비스','🛎️']];
+  const jobIndex = useMemo(() => dbJobs.map(j => ({ j, field: j.field || '기타', name: normLoose(j.job), majors: normLoose(j.majors), subs: normLoose(j.subjectsText), does: normLoose(j.does) })), [dbJobs]);
+  const jobSearch = useMemo(() => {
+    const toks = jobQuery.split(/[\s,]+/).map(normLoose).filter(Boolean);
+    if (!toks.length) return null;
+    return jobIndex.map(x => {
+      let total = 0;
+      for (const t of toks) {
+        const sc = x.name.startsWith(t) ? 10 : x.name.includes(t) ? 8 : x.majors.includes(t) ? 4 : x.subs.includes(t) ? 3 : (x.does.includes(t) || normLoose(x.field).includes(t)) ? 2 : 0;
+        if (!sc) return null; total += sc;
+      }
+      return { ...x, score: total + (x.j.ai ? 0 : 0.5) };
+    }).filter(Boolean).sort((a, b) => b.score - a.score || a.j.job.localeCompare(b.j.job, 'ko')).map(x => x.j);
+  }, [jobQuery, jobIndex]);
+  // 왼쪽에서 고른 희망 계열·학과와 이어지는 직업 (관련 학과가 겹치는 직업)
+  const jobsForMyCareer = useMemo(() => {
+    if (selectedField === 'none') return [];
+    const mine = new Set(Object.values(dbDepartmentDetails).filter(d => d.field === selectedField).map(d => normLoose(d.name)));
+    const myMajor = selectedMajor !== 'none' ? normLoose(selectedMajor) : '';
+    return jobIndex.map(x => {
+      const ms = splitUnits(x.j.majors).map(normLoose);
+      const sc = (myMajor && ms.includes(myMajor) ? 5 : 0) + ms.filter(m => mine.has(m)).length;
+      return sc ? { j: x.j, sc } : null;
+    }).filter(Boolean).sort((a, b) => b.sc - a.sc).slice(0, 8).map(x => x.j);
+  }, [jobIndex, selectedField, selectedMajor, dbDepartmentDetails]);
+  const pickJob = (name) => {
+    setSelectedJob(name); setJobQuery(''); setJobField(''); setJobShowAll(false);
+    setRecentJobs(r => { const n = [name, ...r.filter(x => x !== name)].slice(0, 6); try { localStorage.setItem(RECENT_JOBS_KEY, JSON.stringify(n)); } catch (e) {} return n; });
+    setTimeout(() => { const el = document.getElementById('job-detail'), pane = rightPaneRef.current; if (!el) return;
+      if (pane && !isMobile()) pane.scrollTo({ top: pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8, behavior: 'smooth' }); else el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60);
+  };
+
   const jobInfo = useMemo(() => {
     const j = dbJobs.find(x => x.job === selectedJob);
     if (!j) return null;
@@ -2712,6 +2758,12 @@ function App() {
               {(yearChoices.length?yearChoices:[{year:ACTIVE_YEAR,isPublic:true}]).map(({year:y,isPublic})=><option key={y} value={y}>{y}학년도 입학생 ({gradeLabelOf(y)}){isPublic?'':' · 미리보기'}</option>)}
             </select>
           </label>
+          <div role="group" aria-label="글자 크기" className="no-print flex items-center bg-white border border-slate-300 rounded-lg overflow-hidden shadow-sm">
+            {[['base','보통','text-sm'],['lg','크게','text-base'],['xl','아주 크게','text-xl']].map(([v,label,cls])=>(
+              <button key={v} onClick={()=>chooseFont(v)} title={`글자 ${label}`} aria-label={`글자 ${label}`} aria-pressed={fontStep===v}
+                className={`px-2.5 py-1.5 font-black leading-none ${cls} ${fontStep===v?'bg-blue-700 text-white':'text-slate-700 hover:bg-blue-50'}`}>가</button>
+            ))}
+          </div>
           <button onClick={()=>fetchGoogleSheetData(true)} disabled={isLoading} className="ml-auto md:ml-2 flex items-center gap-1.5 text-base font-bold text-slate-700 bg-white border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm disabled:opacity-50">
             🔄 {isLoading?'데이터 로딩 중...':isRefreshing?'최신 자료 확인 중...':'데이터 최신화'}
           </button>
@@ -3017,7 +3069,7 @@ function App() {
                   )}
                   {perTypeRule?(
                     <div className="flex flex-col gap-6 mt-6 mb-2">
-                      <div className={`grid ${leftW>=640?'grid-cols-3':'grid-cols-1'} gap-5`}>
+                      <div className={`grid ${leftW>=640*fontK?'grid-cols-3':'grid-cols-1'} gap-5`}>
                         {typeBoxes.map(({type,subjects})=>{
                           if(!subjects||subjects.length===0) return null;
                           return (
@@ -3382,47 +3434,74 @@ function App() {
                 {dbJobs.length===0?(
                   <div className="p-8 text-center text-slate-500 font-bold border-2 border-dashed border-slate-300 rounded-2xl">시트의 [직업데이터] 탭에서 자료를 찾지 못했습니다.</div>
                 ):(<>
-                  <input value={jobQuery} onChange={e=>setJobQuery(e.target.value)} placeholder="직업 이름으로 찾기 (예: 간호, 교사, 개발)" aria-label="직업 찾기"
-                    className="w-full mb-3 px-4 py-3 rounded-xl border-2 border-blue-300 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"/>
                   {(()=>{
-                    const q=normLoose(jobQuery);
-                    const hit=j=>!q||normLoose(j.job).includes(q)||normLoose(j.majors).includes(q);
-                    const base=dbJobs.filter(j=>!j.ai&&hit(j)), ai=dbJobs.filter(j=>j.ai&&hit(j));
-                    const aiTotal=dbJobs.filter(j=>j.ai).length;
-                    const aiFields=[...new Set(ai.map(j=>j.field||'기타'))];
-                    return (<>
-                      {base.length>0&&<div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1 mb-3">
-                        {base.map(j=>(
-                          <button key={j.job} onClick={()=>setSelectedJob(j.job)}
-                            className={`px-3 py-1.5 rounded-full text-sm font-bold border-2 ${selectedJob===j.job?'bg-blue-700 text-white border-blue-700':'bg-white text-slate-700 border-slate-300 hover:border-blue-400'}`}>{j.job}</button>
-                        ))}
-                      </div>}
-                      {aiTotal>0&&(
-                        <details open={!!q||undefined} className="mb-4 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/60 p-3">
-                          <summary className="cursor-pointer font-black text-amber-900 break-keep">🤖 더 많은 직업 보기 — AI추천 {q?`${ai.length}개 찾음`:`${aiTotal}개`} <span className="text-red-700">(주의!! 상담 및 고민 필요)</span></summary>
-                          <p className="text-xs lg:text-sm text-amber-900 mt-1 mb-2 break-keep">아래 직업의 설명과 추천 과목은 AI가 만든 참고 자료입니다. 선생님이 검토한 위의 직업 목록과 달리 틀린 내용이 있을 수 있어요.</p>
-                          <div className="max-h-72 overflow-y-auto custom-scrollbar pr-1">
-                            {aiFields.map(f=>(
-                              <div key={f} className="mb-2">
-                                <div className="text-xs font-black text-amber-800 mb-1">{f}</div>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {ai.filter(j=>(j.field||'기타')===f).map(j=>(
-                                    <button key={j.job} onClick={()=>setSelectedJob(j.job)}
-                                      className={`px-2.5 py-1 rounded-full text-sm font-bold border ${selectedJob===j.job?'bg-amber-600 text-white border-amber-600':'bg-white text-slate-700 border-amber-300 hover:border-amber-500'}`}>{j.job}</button>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
+                    const jobCard=(j)=>(
+                      <button key={j.job} onClick={()=>pickJob(j.job)}
+                        className={`text-left p-3 rounded-xl border-2 transition-colors ${selectedJob===j.job?'border-blue-600 bg-blue-50':'border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50/40'}`}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-black text-base lg:text-lg text-slate-900 break-keep">{j.job}</span>
+                          {j.ai&&<span title="AI가 만든 참고 자료 (상담 필요)" className="text-[11px] font-black px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">AI</span>}
+                        </div>
+                        {j.does&&<div className="mt-0.5 text-sm text-slate-600 break-keep line-clamp-2">{j.does}</div>}
+                      </button>
+                    );
+                    const grid=(list)=><div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2">{list.map(jobCard)}</div>;
+                    const countOf=f=>dbJobs.filter(j=>(j.field||'기타')===f).length;
+                    const fields=[...JOB_FIELDS.filter(([f])=>countOf(f)>0), ...(countOf('기타')?[['기타','🗂️']]:[])];
+                    const recent=recentJobs.map(n=>dbJobs.find(j=>j.job===n)).filter(Boolean);
+                    return (
+                      <div className="mb-4 flex flex-col gap-3">
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl">🔍</span>
+                          <input value={jobQuery} onChange={e=>{setJobQuery(e.target.value);setJobShowAll(false);}} placeholder="어떤 일을 하고 싶나요? (예: 간호, 동물, 게임, 그림, 외국어)" aria-label="직업 찾기"
+                            className="w-full pl-12 pr-12 py-4 rounded-2xl border-2 border-blue-300 text-lg lg:text-xl font-bold focus:outline-none focus:ring-4 focus:ring-blue-200 shadow-sm"/>
+                          {jobQuery&&<button onClick={()=>setJobQuery('')} aria-label="검색어 지우기" className="absolute right-4 top-1/2 -translate-y-1/2 text-2xl text-slate-400 hover:text-slate-700">✕</button>}
+                        </div>
+                        {jobSearch?(<>
+                          <div className="text-sm lg:text-base font-bold text-slate-600">'{jobQuery}' — 직업 {jobSearch.length}개 <span className="font-medium text-slate-400">(직업 이름·관련 학과·관련 과목·하는 일에서 찾음)</span></div>
+                          {jobSearch.length===0
+                            ?<p className="p-4 rounded-xl bg-slate-50 text-base font-bold text-slate-500 break-keep">찾는 직업이 없습니다. 다른 낱말(예: '디자이너' → '디자인')로 찾거나, 아래 계열로 둘러보세요.</p>
+                            :<>{grid(jobShowAll?jobSearch:jobSearch.slice(0,12))}
+                              {jobSearch.length>12&&!jobShowAll&&<button onClick={()=>setJobShowAll(true)} className="self-center px-4 py-2 rounded-xl border-2 border-slate-300 font-bold text-slate-700 hover:bg-slate-50">{jobSearch.length-12}개 더 보기</button>}</>}
+                        </>):jobField?(<>
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg lg:text-xl font-black text-slate-900">{(fields.find(([f])=>f===jobField)||[])[1]} {jobField} <span className="text-slate-500 font-bold">{countOf(jobField)}개</span></span>
+                            <button onClick={()=>setJobField('')} className="ml-auto px-3 py-1.5 rounded-lg border-2 border-slate-300 font-bold text-slate-700 hover:bg-slate-50">← 계열 다시 고르기</button>
                           </div>
-                        </details>
-                      )}
-                      {q&&base.length===0&&ai.length===0&&<p className="mb-4 text-sm font-bold text-slate-500 break-keep">'{jobQuery}' 직업을 찾지 못했습니다. 다른 낱말(예: '디자이너' → '디자인')로 찾거나, [학과 가이드]에서 관련 학과를 살펴보세요.</p>}
-                    </>);
+                          {grid(dbJobs.filter(j=>(j.field||'기타')===jobField).sort((a,b)=>a.job.localeCompare(b.job,'ko')))}
+                        </>):(<>
+                          {selectedJob&&jobInfo?(
+                            <details className="rounded-2xl border-2 border-slate-200 bg-slate-50/60 p-3">
+                              <summary className="cursor-pointer font-black text-slate-700">🧭 다른 직업 둘러보기 (계열별)</summary>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
+                                {fields.map(([f,ic])=><button key={f} onClick={()=>setJobField(f)} className="flex flex-col items-center justify-center gap-0.5 p-2 rounded-xl border-2 border-slate-200 bg-white hover:border-blue-400 font-black text-slate-800"><span className="text-2xl">{ic}</span><span className="text-sm lg:text-base">{f}</span><span className="text-xs text-slate-500 font-bold">{countOf(f)}개</span></button>)}
+                              </div>
+                            </details>
+                          ):(<>
+                            <div className="text-base lg:text-lg font-black text-slate-800">🧭 계열로 둘러보기</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                              {fields.map(([f,ic])=><button key={f} onClick={()=>setJobField(f)} className="flex flex-col items-center justify-center gap-1 p-3 lg:p-4 rounded-2xl border-2 border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50/40 font-black text-slate-800 shadow-sm"><span className="text-3xl">{ic}</span><span className="text-base lg:text-lg">{f}</span><span className="text-xs lg:text-sm text-slate-500 font-bold">{countOf(f)}개</span></button>)}
+                            </div>
+                          </>)}
+                          {jobsForMyCareer.length>0&&(<>
+                            <div className="text-base lg:text-lg font-black text-slate-800 mt-1">★ 내 희망 진로({selectedMajor!=='none'?selectedMajor:selectedField})와 이어지는 직업</div>
+                            {grid(jobsForMyCareer)}
+                          </>)}
+                          {recent.length>0&&(
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm lg:text-base font-black text-slate-600">🕘 최근 본 직업</span>
+                              {recent.map(j=><button key={j.job} onClick={()=>pickJob(j.job)} className={`px-3 py-1.5 rounded-full text-sm lg:text-base font-bold border-2 ${selectedJob===j.job?'bg-blue-700 text-white border-blue-700':'bg-white text-slate-700 border-slate-300 hover:border-blue-400'}`}>{j.job}</button>)}
+                            </div>
+                          )}
+                        </>)}
+                        <p className="text-xs lg:text-sm text-slate-500 break-keep">전체 {dbJobs.length}개 직업 · <span className="font-black text-red-700">AI</span> 표시는 AI가 만든 참고 자료입니다 (주의!! 상담 및 고민 필요)</p>
+                      </div>
+                    );
                   })()}
                   {!jobInfo?(
-                    <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">위에서 직업을 하나 골라 보세요. ({dbJobs.filter(j=>!j.ai).length}개 직업{dbJobs.some(j=>j.ai)?` + AI추천 ${dbJobs.filter(j=>j.ai).length}개`:''})</div>
+                    <div className="p-8 text-center text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl">위에서 직업을 찾거나 계열을 눌러 골라 보세요.</div>
                   ):(
-                    <div className="flex flex-col gap-4">
+                    <div id="job-detail" className="flex flex-col gap-4 scroll-mt-2">
                       {jobInfo.ai&&(
                         <div role="note" className="rounded-2xl border-2 border-red-400 bg-red-50 p-4 break-keep">
                           <div className="text-lg lg:text-xl font-black text-red-700">🤖 AI추천 (주의!! 상담 및 고민 필요)</div>
