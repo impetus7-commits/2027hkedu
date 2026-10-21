@@ -1057,8 +1057,6 @@ function App() {
         setIsGeneralTrack(p.isGeneralTrack||false);
         setStudentInfo(p.studentInfo||{studentNum:'',name:''});
         if (p.selectedJob) setSelectedJob(p.selectedJob);
-        setShowSciencePopup(p.isScienceTrack||false);
-        setShowGeneralPopup(p.isGeneralTrack||false);
       } catch(e){}
     }
   }, []);
@@ -1730,8 +1728,8 @@ function App() {
   const applyTrackChange = (trackType, isChecked) => {
     if (trackType === 'general') {
       setIsGeneralTrack(isChecked);
+      // 요건 팝업은 [📋 요건보기]를 누를 때만 띄움
       if (isChecked) {
-        setShowGeneralPopup(true);
         setIsScienceTrack(false);
         setShowSciencePopup(false);
       } else {
@@ -1740,7 +1738,6 @@ function App() {
     } else if (trackType === 'science') {
       setIsScienceTrack(isChecked);
       if (isChecked) {
-        setShowSciencePopup(true);
         setIsGeneralTrack(false);
         setShowGeneralPopup(false);
       } else {
