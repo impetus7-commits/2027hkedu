@@ -810,7 +810,6 @@ const formatReportText = (text, mark) => {
 function App() {
   const [activeTab, setActiveTab] = useState('planner');
   const [activeSemesterTab, setActiveSemesterTab] = useState('2-1');
-  const [isRightPanelExpanded, setIsRightPanelExpanded] = useState(false);
   // 글자 크기 (화면 전체가 rem 단위라 html 글자 크기만 바꾸면 함께 커짐) · 넓은 모니터는 처음부터 '크게'
   const FONT_KEY = 'hwikyung_font';
   const FONT_STEPS = { base: 16, lg: 18, xl: 20.5 };
@@ -2868,10 +2867,10 @@ function App() {
       )}
 
       <main ref={mainRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-x-0 w-full flex-1 relative no-print items-stretch md:flex-none md:h-[calc(100vh-0.5rem)] md:grid-rows-[minmax(0,1fr)]"
-        style={isWide?{gridTemplateColumns:isRightPanelExpanded?'minmax(0,1fr)':`minmax(0,${splitPct}fr) 18px minmax(0,${100-splitPct}fr)`}:undefined}>
+        style={isWide?{gridTemplateColumns:`minmax(0,${splitPct}fr) 18px minmax(0,${100-splitPct}fr)`}:undefined}>
         
         {/* ── 왼쪽 패널 ── */}
-        <div ref={leftPaneRef} className={`w-full flex flex-col gap-3 relative md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:hidden' : 'md:flex'}`}>
+        <div ref={leftPaneRef} className={`w-full flex flex-col gap-3 relative md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar md:flex`}>
           {/* 진로 설정 섹션 */}
           <div id="settings-area" className="flex flex-col gap-1.5 shrink-0">
             <div className="bg-white p-4 rounded-2xl shadow-sm border-t-4 border-blue-600">
@@ -3111,7 +3110,7 @@ function App() {
         </div>
 
         {/* ── 오른쪽 패널 ── */}
-        {isWide&&!isRightPanelExpanded&&(
+        {isWide&&(
           <div role="separator" aria-orientation="vertical" aria-label="좌우 화면 비율 조절" aria-valuemin={25} aria-valuemax={75} aria-valuenow={splitPct} tabIndex={0}
             title={`끌어서 좌우 화면 비율 조절 (지금 ${splitPct} : ${100-splitPct}) · 두 번 누르면 반반`}
             onPointerDown={e=>{ e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setIsSplitDragging(true); document.body.style.userSelect='none'; }}
@@ -3127,7 +3126,7 @@ function App() {
             {isSplitDragging&&<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[calc(50%+44px)] whitespace-nowrap px-2 py-1 rounded-md bg-slate-900 text-white text-xs font-black shadow">{splitPct} : {100-splitPct}</div>}
           </div>
         )}
-        <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:w-full md:col-span-full' : ''}`}>
+        <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar `}>
           
           {/* 메뉴: ① 진로 찾기 ② 과목 고르기 ③ 내 결과 ❓ 도움말 */}
           <div className="mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2 flex flex-col gap-1.5">
@@ -3146,10 +3145,6 @@ function App() {
                   {t.icon} {t.label}
                 </button>
               ))}
-              <button onClick={() => setIsRightPanelExpanded(!isRightPanelExpanded)} title={isRightPanelExpanded ? "좌우 화면 분할 복귀" : "우측 탭 화면 전체 확대"}
-                className="hidden md:inline-flex ml-auto items-center gap-1 px-3 py-1.5 rounded-full font-bold text-xs sm:text-sm bg-slate-700 text-white hover:bg-slate-800">
-                {isRightPanelExpanded ? '▶◀ 원상복귀' : '◀▶ 화면확대'}
-              </button>
             </div>
           </div>
 
