@@ -831,6 +831,11 @@ function App() {
   const [univKind, setUnivKind] = useState('전체');
   const [univRegion, setUnivRegion] = useState('전체');
   const univCacheRef = useRef({});
+  // 커리어넷 직업백과(시트 [커리어넷직업] 탭)와 진로상담 사례 — 직업을 고를 때마다 그때그때 받아 옴
+  const [cjob, setCjob] = useState({ key: '', data: null });
+  const [cjobPick, setCjobPick] = useState(0);
+  const [counsel, setCounsel] = useState({ open: false, loading: false, error: '', data: null });
+  const cjobCacheRef = useRef({});
   const [compareNames, setCompareNames] = useState(['', '', '']);
   const [searchQuery, setSearchQuery] = useState('');
   const [blockInfo, setBlockInfo] = useState(null);
@@ -1862,13 +1867,48 @@ function App() {
 
   // 직업 → 관련 학과: 시트의 '관련 학과' 칸이 있으면 그대로, 없으면 학과데이터 '졸업 후 진로'에 직업 이름이 '그대로' 나오는 학과
   //   (글자 일부로 찾으면 '외국어 교사' 안의 '국어 교사'처럼 엉뚱하게 걸리므로 항목 단위로 비교)
-  const jobMajors = useMemo(() => {
+  const jobNameParts = (name) => String(name || '').split('/').map(x => x.replace(/\(.*?\)/g, '').trim()).filter(x => x.length >= 2);
+  useEffect(() => {
+    setCjobPick(0); setCounsel({ open: false, loading: false, error: '', data: null });
+    if (!jobInfo) return;
+    const key = jobNameParts(jobInfo.job).join('|');
+    if (cjobCacheRef.current[key]) { setCjob({ key, data: cjobCacheRef.current[key] }); return; }
+    setCjob({ key, data: null });
+    fetchSheet({ cjob: key }, 1).then(t => { const d = JSON.parse(t); if (!('ready' in d)) return; cjobCacheRef.current[key] = d; setCjob(c => c.key === key ? { key, data: d } : c); }).catch(() => {});
+  }, [selectedJob]);
+  // 지금 고른 직업의 직업백과 내용 (없으면 null)
+  const official = useMemo(() => {
+    const d = cjob.data;
+    if (!d || !d.ready || !d.rows || !d.rows.length) return null;
+    const r = d.rows[Math.min(cjobPick, d.rows.length - 1)], h = d.head;
+    const g = (n) => (r[h.indexOf(n)] || '').trim();
+    return { name: g('직업명'), does: g('하는 일'), aptitude: g('적성·흥미'), departs: g('관련 학과'), certi: g('관련 자격'), wage: g('임금'),
+             forecast: g('전망'), prepare: g('되는 길'), url: g('원문'), exact: d.exact > 0 && cjobPick < d.exact, all: d.rows.map(x => x[0]), updated: d.updated };
+  }, [cjob, cjobPick]);
+  const officialDeparts = official ? splitUnits(official.departs).map(x => x.trim()).filter(Boolean) : [];
+  const loadCounsel = async () => {
+    const word = (official && official.exact ? official.name : jobNameParts(jobInfo.job)[0]) || jobInfo.job;
+    setCounsel({ open: true, loading: true, error: '', data: null });
+    try {
+      const d = JSON.parse(await fetchSheet({ counsel: word }, 1));
+      if (!('ready' in d)) throw new Error('시트의 Apps Script를 새 버전으로 배포해야 합니다.');
+      setCounsel({ open: true, loading: false, error: '', data: d, word });
+    } catch (e) { setCounsel({ open: true, loading: false, error: e.message, data: null }); }
+  };
+  const sheetJobMajors = useMemo(() => {
     if (!jobInfo) return [];
     if (jobInfo.majors) return splitUnits(jobInfo.majors).map(x => x.replace(/\s*등$/, '').trim()).filter(Boolean).slice(0, 6);
     const parts = jobInfo.job.split('/').map(x => normLoose(x.replace(/\(.*?\)/g, ''))).filter(x => x.length >= 2);
     const items = (t) => String(t || '').split(/[,\n·∙•()]/).map(x => normLoose(x.replace(/\s*등$/, '')).replace(/^(중등|고등|초등|중학교|고등학교)/, ''));
     return Object.values(dbDepartmentDetails).filter(d => items(d.careerPaths).some(it => parts.includes(it))).map(d => d.name).slice(0, 6);
   }, [jobInfo, dbDepartmentDetails]);
+  // 관련 학과: 직업백과(공식) 학과를 먼저, 그다음 시트·AI 학과 (최대 8개)
+  const jobMajors = useMemo(() => {
+    const seen = new Set(), out = [];
+    [...officialDeparts, ...sheetJobMajors].forEach(m => { const k = normLoose(m); if (k && !seen.has(k)) { seen.add(k); out.push(m); } });
+    return out.slice(0, 8);
+  }, [official, sheetJobMajors]);
+  const majorsFromAI = !!(jobInfo && jobInfo.ai && sheetJobMajors.some(m => !officialDeparts.some(o => normLoose(o) === normLoose(m))));
   // 구체적인 학과 이름(국어교육과) → 학과 가이드의 학과(언어 교과 교육과, 유사학과에 국어교육과)
   const guideDeptFor = (name) => {
     if (dbDepartmentDetails[name]) return name;
@@ -3267,15 +3307,38 @@ function App() {
                       {jobInfo.ai&&(
                         <div role="note" className="rounded-2xl border-2 border-red-400 bg-red-50 p-4 break-keep">
                           <div className="text-lg lg:text-xl font-black text-red-700">🤖 AI추천 (주의!! 상담 및 고민 필요)</div>
-                          <p className="text-sm lg:text-base text-red-900 mt-1">이 직업의 설명과 추천 과목은 <b>AI가 만든 참고 자료</b>입니다. 그대로 따르지 말고, <b>담임·진로 선생님과 꼭 상담</b>하고 스스로 충분히 고민한 뒤 과목을 정하세요.</p>
+                          <p className="text-sm lg:text-base text-red-900 mt-1">{official
+                            ?<>이 직업의 <b>추천 과목</b>은 <b>AI가 만든 참고 자료</b>입니다. (직업 설명은 아래 <b>커리어넷 직업백과</b> 공식 자료) </>
+                            :<>이 직업의 설명과 추천 과목은 <b>AI가 만든 참고 자료</b>입니다. </>}
+                            그대로 따르지 말고, <b>담임·진로 선생님과 꼭 상담</b>하고 스스로 충분히 고민한 뒤 과목을 정하세요.</p>
                         </div>
                       )}
                       <div className={`rounded-2xl border-2 p-4 ${jobInfo.ai?'border-amber-300 bg-amber-50':'border-blue-200 bg-blue-50'}`}>
                         <div className="text-xl lg:text-2xl font-black text-blue-950 mb-1">{jobInfo.job}{jobInfo.ai&&<span className="ml-2 align-middle text-xs lg:text-sm font-black px-2 py-0.5 rounded-md bg-red-600 text-white">AI추천</span>}</div>
-                        {jobInfo.does&&<div className="text-base font-bold text-slate-800 break-keep mb-1">💼 {jobInfo.does}</div>}
+                        {jobInfo.ai&&official&&official.does
+                          ?<div className="text-base font-bold text-slate-800 break-keep mb-1">💼 {official.does.split('\n')[0]} <span className="text-xs font-black text-mblue-800">(커리어넷{official.exact?'':`: ${official.name}`})</span></div>
+                          :jobInfo.does&&<div className="text-base font-bold text-slate-800 break-keep mb-1">💼 {jobInfo.does}</div>}
                         <div className="text-sm text-slate-600 break-keep"><b>관련 과목:</b> {jobInfo.subjectsText}</div>
                         {jobInfo.majors&&<div className="text-sm text-slate-600 break-keep"><b>관련 학과:</b> {jobInfo.majors}</div>}
                       </div>
+                      {official&&(
+                        <div className="rounded-2xl border-2 border-mblue-200 bg-mblue-50/40 p-4 break-keep">
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <span className="font-black text-mblue-900">📘 커리어넷 직업백과 — {official.name}</span>
+                            {!official.exact&&<span className="text-xs font-bold text-slate-500">(비슷한 직업)</span>}
+                            {official.all.length>1&&official.all.map((n,i)=><button key={i} onClick={()=>setCjobPick(i)} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${i===cjobPick?'bg-mblue-700 text-white border-mblue-700':'bg-white text-mblue-800 border-mblue-300'}`}>{n}</button>)}
+                          </div>
+                          <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm lg:text-base">
+                            {[['하는 일',official.does],['적성·흥미',official.aptitude],['관련 학과',official.departs],['관련 자격',official.certi],['임금',official.wage],['일자리 전망',official.forecast],['되는 길',official.prepare]].filter(([,v])=>v).map(([k,v])=>(
+                              <React.Fragment key={k}>
+                                <dt className="font-black text-mblue-900">{k}</dt>
+                                <dd className="text-slate-800 whitespace-pre-line">{v.length>420?v.slice(0,420)+'…':v}</dd>
+                              </React.Fragment>
+                            ))}
+                          </dl>
+                          <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 직업백과(교육부·한국직업능력연구원){official.updated?` · ${official.updated}`:''}{official.url&&<> · <a href={official.url} target="_blank" rel="noopener noreferrer" className="font-bold text-mblue-700 underline">커리어넷에서 자세히 보기</a></>}</p>
+                        </div>
+                      )}
                       <div className="rounded-2xl border-2 border-slate-200 p-4">
                         <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목{jobInfo.ai&&<span className="ml-2 text-sm font-black text-red-700">— AI추천 (주의!! 상담 및 고민 필요)</span>}</div>
                         <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep"><b className="text-blue-800">왜?</b>는 이 직업의 어떤 면 때문에 필요한지, <b className="text-green-700">무엇을?</b>은 그 과목에서 배우는 내용입니다. 괄호 안은 개설 학기(2-1학기 = 2학년 1학기), <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
@@ -3308,12 +3371,33 @@ function App() {
                         })()}
                         {jobInfo.notOffered.length>0&&<p className="mt-3 text-xs lg:text-sm text-slate-500 break-keep"><b>우리 학교에 없는 과목:</b> {jobInfo.notOffered.join(', ')} <span className="text-slate-400">(공동교육과정·온라인학교 등으로 들을 수 있는지 담임 선생님께 문의하세요)</span></p>}
                       </div>
+                      <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/40 p-4 break-keep">
+                        {!counsel.open?(
+                          <button onClick={loadCounsel} className="px-4 py-2 rounded-xl bg-white border-2 border-violet-400 text-violet-900 font-bold">💬 이 직업에 관한 진로상담 사례 보기</button>
+                        ):(<>
+                          <div className="font-black text-violet-950 mb-1">💬 이런 고민, 이렇게 상담했어요{counsel.word?` — '${counsel.word}'`:''}</div>
+                          {counsel.loading&&<p className="text-sm font-bold text-slate-500">상담 사례를 찾는 중…</p>}
+                          {counsel.error&&<p className="text-sm font-bold text-red-700">상담 사례를 불러오지 못했습니다. ({counsel.error})</p>}
+                          {counsel.data&&!counsel.data.ready&&<p className="text-sm font-bold text-slate-500">아직 준비되지 않았습니다. (선생님: 시트 메뉴 [🎓 대학 정보] → [🔑 커리어넷 인증키 저장])</p>}
+                          {counsel.data&&counsel.data.ready&&(counsel.data.items.length===0
+                            ?<p className="text-sm text-slate-500 font-bold">관련 상담 사례를 찾지 못했습니다.</p>
+                            :<div className="flex flex-col gap-2">{counsel.data.items.map((it,i)=>(
+                              <details key={i} className="rounded-xl border border-violet-200 bg-white p-3">
+                                <summary className="cursor-pointer font-bold text-slate-900">Q. {it.title}</summary>
+                                {it.q&&<p className="mt-2 text-sm text-slate-700 whitespace-pre-line"><b className="text-violet-800">고민</b> {it.q}{it.q.length>=400?'…':''}</p>}
+                                {it.a&&<p className="mt-2 text-sm text-slate-800 whitespace-pre-line"><b className="text-violet-800">상담 답변</b> {it.a}{it.a.length>=600?'…':''}</p>}
+                                <a href={it.link||'https://www.career.go.kr/'} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-xs font-bold text-violet-800 underline">커리어넷에서 전체 보기</a>
+                              </details>
+                            ))}</div>)}
+                          <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 진로상담(교육부·한국직업능력연구원). 내 고민은 담임·진로 선생님과도 꼭 이야기해 보세요.</p>
+                        </>)}
+                      </div>
                       {!univPanel.open?(
                         <button onClick={()=>setUnivPanel(p=>({...p,open:true}))} className="self-start px-4 py-2 rounded-xl bg-white border-2 border-blue-400 text-blue-800 font-bold">🎓 관련 학과·대학도 살펴보기</button>
                       ):(
                         <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4">
                           <div className="font-black text-slate-800 mb-1">🎓 이 직업으로 이어지는 학과와 대학</div>
-                          {jobInfo.ai&&<p className="text-xs lg:text-sm font-bold text-red-700 mb-1 break-keep">🤖 관련 학과도 AI추천입니다 (주의!! 상담 및 고민 필요)</p>}
+                          {majorsFromAI&&<p className="text-xs lg:text-sm font-bold text-red-700 mb-1 break-keep">🤖 관련 학과 중 일부는 AI추천입니다 (주의!! 상담 및 고민 필요){officialDeparts.length?' — 앞쪽 학과는 커리어넷 직업백과 자료':''}</p>}
                           {jobMajors.length===0?(
                             <p className="text-sm text-slate-500 break-keep">이 직업과 연결된 학과를 찾지 못했습니다. <button onClick={()=>goTab('major')} className="underline font-bold text-blue-800">학과 가이드</button>에서 찾아보세요.</p>
                           ):(<>
