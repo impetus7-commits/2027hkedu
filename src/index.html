@@ -1260,18 +1260,19 @@ function App() {
           if(rowStr.includes('대학')||rowStr.includes('모집')||rowStr.includes('권장')||rowStr.includes('학과')){ headerRowIdx=i; break; }
         }
         // 제목 줄로 열 찾기 (열 순서가 바뀌어도 됨)
-        //  · 계열 열(D)과 학부(학과) 열(E)이 나뉘어 있으면 D=계열, E=학부(학과)
-        //  · D:E가 가로로 합쳐져 E가 비면 → 그 계열 전체에 대한 권장 ('계열 전체')
+        //  · 기본 배치: C=대학, D=계열, E=학부(학과), 그 뒤 핵심 반영 과목·권장 반영 과목·비고
+        //  · E(학부·학과)가 비어 있으면 D(계열) 값이 곧 학부(학과)
         //  · 대학·계열 칸이 세로로 합쳐져 비면 → 위 칸 값을 이어 씀
         //  · 그 밖의 열(구분, 비고 등)은 제목과 함께 '참고'로 보여 줌
         const rawHead=parsedUnivRecs[headerRowIdx].map(h=>String(h??'').replace(/"/g,'').trim());
         const H=rawHead.map(h=>h.replace(/\s+/g,''));
         const isRec=h=>/권장|핵심|이수과목|과목/.test(h);
-        let idxUniv=H.findIndex(h=>h==='대학'||h==='대학교'||h==='대학명'||(h.includes('대학')&&!/단과|학과|학부|권장|과목/.test(h)));
+        let idxUniv=H.findIndex(h=>h==='대학'||h==='대학교'||h==='대학명');
+        if(idxUniv===-1) idxUniv=H.findIndex(h=>h.includes('대학')&&!/단과|학과|학부|권장|과목|구분|유형/.test(h));
         let deptCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&/학부|학과|모집단위|전공/.test(H[i])&&!isRec(H[i]));
         let collegeCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&/단과|계열/.test(H[i])&&!isRec(H[i]));
-        if(idxUniv===-1)idxUniv=0;
-        if(!deptCols.length&&H.length>=5){ collegeCols=[3]; deptCols=[4]; }          // 제목이 없으면 D=계열, E=학부(학과)
+        if(idxUniv===-1) idxUniv=H.length>=5?2:0;                                   // 제목이 없으면 C=대학
+        if(!deptCols.length&&H.length>=5){ collegeCols=[3]; deptCols=[4]; }          //            D=계열, E=학부(학과)
         if(!deptCols.length) deptCols=[H.length>3?2:1];
         if(!collegeCols.length&&deptCols[0]>=2) collegeCols=[deptCols[0]-1];
         const idxDept=deptCols[deptCols.length-1];
@@ -1280,7 +1281,7 @@ function App() {
         const recCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&!collegeCols.includes(i)&&isRec(H[i]));
         const idxCore=recCols.find(i=>H[i].includes('핵심'));
         const recOnly=recCols.filter(i=>i!==idxCore);
-        const extraCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&!collegeCols.includes(i)&&!recCols.includes(i)&&H[i]);
+        const extraCols=H.map((h,i)=>i).filter(i=>i!==idxUniv&&!deptCols.includes(i)&&!collegeCols.includes(i)&&!recCols.includes(i)&&H[i]&&!/^(번호|연번|순번|no\.?)$/i.test(H[i]));
         const val=(row,i)=>i!=null&&i!==-1&&row[i]!=null?String(row[i]).trim():'';
         const univData=[]; let lastUniv='',lastCollege='',lastOther={},lastExtra={};
         const noFill=i=>/비고|참고|메모|설명/.test(H[i]);
@@ -1292,14 +1293,16 @@ function App() {
           const core=val(row,idxCore);
           const rec=recOnly.map(i=>val(row,i)).filter(Boolean).join('\n');
           if(!d&&!c&&!core&&!rec) return;
-          if(c&&!d){ d='계열 전체'; lastCollege=c; }            // D:E 가로 합침 → 계열 전체
+          if(c&&!d){ d=c; lastCollege=c; }                       // 학부(학과)가 비면 계열 값이 곧 학부(학과)
           else if(!c&&d){ c=lastCollege; }                       // 계열 칸 세로 합침
           else if(c&&d){ lastCollege=c; }
-          else { c=lastCollege; d='계열 전체'; }
+          else { c=lastCollege; d=lastCollege; }
           const prefix=otherColleges.map(i=>lastOther[i]).filter(Boolean);
           const college=[...prefix,c].filter(Boolean).join(' · ')||'전체/공통';
           const extras=extraCols.map(i=>{ let v=val(row,i); if(v) lastExtra[i]=v; else if(!noFill(i)) v=lastExtra[i]||''; return {label:rawHead[i],value:v}; }).filter(x=>x.value);
-          if(u&&d&&u!=='대학'&&!/^(모집단위|학과명|학과|학부\(학과\))$/.test(d)) univData.push({univ:u,college,dept:d,core,rec,extras});
+          const note=extras.filter(x=>/비고|참고|메모/.test(x.label)).map(x=>x.value).join('\n');
+          const info=extras.filter(x=>!/비고|참고|메모/.test(x.label));
+          if(u&&d&&u!=='대학'&&!/^(모집단위|학과명|학과|학부\(학과\))$/.test(d)) univData.push({univ:u,college,dept:d,core,rec,extras:info,note,split:idxCore!=null&&recOnly.length>0});
         });
         setDbUnivData(univData);
       }
@@ -1736,7 +1739,7 @@ function App() {
   const univUnits = useMemo(() => {
     const list = [];
     dbUnivData.forEach((r, i) => {
-      const units = /제외|전공 분야|계열 전체|^\s*$/.test(r.dept) ? [r.dept] : splitUnits(r.dept);
+      const units = /제외|전공 분야|^\s*$/.test(r.dept) || r.dept === r.college ? [r.dept] : splitUnits(r.dept);
       units.forEach(u => list.push({ univ: r.univ, college: r.college, unit: u, row: r, rowKey: i }));
     });
     return list;
@@ -1752,9 +1755,9 @@ function App() {
   const univResultInfo = useMemo(() => {
     if (!univResult) return null;
     // '핵심 과목'·'권장 과목'이 따로 된 열이면 각각 읽어 교과별로 합침 (한 칸에 (핵심)/(권장)이 섞여 있어도 됨)
-    const { core: coreCol, rec: recCol } = univResult.row;
+    const { core: coreCol, rec: recCol, split } = univResult.row;
     let lines;
-    if (coreCol && recCol) {
+    if (split || (coreCol && recCol)) {
       const bySubj = new Map();
       const put = (l, key) => { const k = l.subj || ''; const o = bySubj.get(k) || { subj: k, core: '', rec: '', other: '' }; o[key] = [o[key], l.core || l.rec || l.other].filter(Boolean).join(', '); bySubj.set(k, o); };
       parseUnivRec(coreCol).forEach(l => put(l, 'core')); parseUnivRec(recCol).forEach(l => put(l, 'rec'));
@@ -3895,19 +3898,19 @@ function App() {
                       <div className="flex flex-col gap-4">
                         <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
                           <div className="text-sm font-bold text-blue-700">{univResult.univ} · {univResult.college}</div>
-                          <div className="text-xl lg:text-2xl font-black text-blue-950 break-keep">{univResult.unit==='계열 전체'?`${univResult.college.split(' · ').pop()} (계열 전체)`:univResult.unit}</div>
+                          <div className="text-xl lg:text-2xl font-black text-blue-950 break-keep">{univResult.unit}</div>
                           {univResult.row.extras?.length>0&&<div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700 break-keep">{univResult.row.extras.map((x,i)=><span key={i}><b className="text-blue-800">{x.label}:</b> {x.value}</span>)}</div>}
                           {univResultInfo.sameRow.length>1&&<div className="mt-2 text-sm text-slate-600 break-keep"><b>같은 기준 적용:</b> {univResultInfo.sameRow.join(', ')}</div>}
                         </div>
 
                         <table className="w-full border-collapse text-left text-sm lg:text-base">
                           <thead><tr className="bg-blue-800 text-white">
-                            <th className="p-2 lg:p-3 w-[18%] rounded-tl-xl">교과</th><th className="p-2 lg:p-3">핵심 과목</th><th className="p-2 lg:p-3 rounded-tr-xl">권장 과목</th>
+                            <th className="p-2 lg:p-3 w-[18%] rounded-tl-xl">교과</th><th className="p-2 lg:p-3">핵심 반영 과목</th><th className="p-2 lg:p-3 rounded-tr-xl">권장 반영 과목</th>
                           </tr></thead>
                           <tbody>
                             {univResultInfo.lines.map((l,i)=>(
                               <tr key={i} className="border-b border-slate-200 align-top">
-                                <td className="p-2 lg:p-3 font-black text-blue-900 bg-blue-50">{l.subj||'안내'}</td>
+                                <td className="p-2 lg:p-3 font-black text-blue-900 bg-blue-50">{l.subj||(l.other?'안내':'전체')}</td>
                                 {l.other?(
                                   <td colSpan={2} className="p-2 lg:p-3 font-medium text-slate-800 break-keep">{l.other}</td>
                                 ):(<>
@@ -3918,6 +3921,9 @@ function App() {
                             ))}
                           </tbody>
                         </table>
+                        {univResult.row.note&&(
+                          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-sm lg:text-base text-amber-950 break-keep whitespace-pre-line"><b className="text-amber-800">📝 비고</b> {univResult.row.note}</div>
+                        )}
 
                         <div className="rounded-2xl border-2 border-slate-200 p-4">
                           <div className="font-black text-slate-800 mb-1">📋 우리 학교 과목과 비교</div>
