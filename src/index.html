@@ -50,6 +50,13 @@
 
     /* Drag helper styles */
     @media print { html { font-size: 16px !important; } }
+    /* 보고서 인쇄 맞춤: 인쇄 직전에 붙는 .print-fit 아래에서 과목 카드 글자를 --fs 하나로 조절 (한 쪽을 가득, 넘치지 않게) */
+    .print-fit .subj-print-card { font-size: var(--fs, 11pt) !important; padding: 0.8em 1em !important; border: 1.5px solid #4b5563 !important; background: #fff !important; }
+    .print-fit .subj-print-card * { font-size: inherit !important; line-height: 1.45 !important; }
+    .print-fit .subj-print-card h4 { font-size: 1.6em !important; }
+    .print-fit .subj-print-card h5 { font-size: 1.15em !important; margin: 0.7em 0 0.35em !important; }
+    .print-fit .subj-print-card th, .print-fit .subj-print-card td { padding: 0.3em 0.5em !important; }
+    .print-fit .subj-print-card ul, .print-fit .subj-print-card .desc-box { padding: 0.5em 0.7em !important; }
     .draggable-popup {
       touch-action: none;
       user-select: none;
@@ -57,7 +64,7 @@
 
     @media print {
       /* 쪽 아래 가운데: - 쪽번호 / 총쪽수 - */
-      @page { margin: 8mm 12mm 12mm; @bottom-center { content: "- " counter(page) " / " counter(pages) " -"; font-size: 9pt; color: #374151; font-family: sans-serif; } } 
+      @page { size: A4 portrait; margin: 8mm 12mm 12mm; @bottom-center { content: "- " counter(page) " / " counter(pages) " -"; font-size: 9pt; color: #374151; font-family: sans-serif; } } 
       html, body {
         width: 100% !important; height: auto !important; overflow: visible !important;
         background: white !important; margin: 0 !important; padding: 0 !important;
@@ -1049,16 +1056,23 @@ function App() {
       const cards = [...wrap.querySelectorAll('.subj-print-card')]; if (!cards.length) return;
       // 인쇄용 CSS가 width:100% !important 라서 잴 때도 !important 로 쪽 너비에 맞춤
       const oldCss = wrap.style.cssText;
+      wrap.classList.add('print-fit');
       wrap.style.setProperty('width', PAGE_W + 'px', 'important'); wrap.style.setProperty('max-width', 'none', 'important'); wrap.style.setProperty('padding', '0', 'important');
       cards.forEach((c, i) => {
         c.style.zoom = '';
-        const head = i === 0 ? (c.parentElement.querySelector('h3')?.offsetHeight || 0) + 12 : 0;
-        const h = c.offsetHeight, room = (PAGE_H - head) * 0.96;
-        if (h > room) c.style.zoom = String(Math.max(0.45, room / h).toFixed(3));
+        const head = i === 0 ? (c.parentElement.querySelector('h3')?.offsetHeight || 0) + 14 : 0;
+        const room = (PAGE_H - head) * 0.97;
+        const fits = (pt) => { c.style.setProperty('--fs', pt + 'pt'); return c.offsetHeight <= room; };
+        // 한 쪽에 들어가는 가장 큰 글자 (7.5pt ~ 14pt 사이에서 찾기)
+        let lo = 7.5, hi = 14;
+        if (fits(hi)) lo = hi;
+        else if (!fits(lo)) { c.style.zoom = String(Math.max(0.5, room / c.offsetHeight).toFixed(3)); }
+        else for (let k = 0; k < 7; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+        if (!c.style.zoom) c.style.setProperty('--fs', lo.toFixed(2) + 'pt');
       });
       wrap.style.cssText = oldCss;
     };
-    const unfit = () => document.querySelectorAll('.subj-print-card').forEach(c => { c.style.zoom = ''; });
+    const unfit = () => { document.getElementById('report-wrapper')?.classList.remove('print-fit'); document.querySelectorAll('.subj-print-card').forEach(c => { c.style.zoom = ''; c.style.removeProperty('--fs'); }); };
     window.addEventListener('beforeprint', fit); window.addEventListener('afterprint', unfit);
     return () => { window.removeEventListener('beforeprint', fit); window.removeEventListener('afterprint', unfit); };
   }, []);
