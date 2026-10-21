@@ -2070,6 +2070,7 @@ function App() {
           <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 text-sm lg:text-base print:text-[9pt] whitespace-nowrap">
             <span><span className="font-bold text-slate-600">희망 계열:</span> <b className="text-blue-900">{selectedField!=='none'?selectedField:'선택 안 함'}</b></span>
             <span><span className="font-bold text-slate-600">희망 학과:</span> <b className="text-blue-900">{selectedMajor!=='none'?selectedMajor:'선택 안 함'}</b></span>
+            <span className="whitespace-normal"><span className="font-bold text-slate-600">희망 직업:</span> <b className="text-blue-900">{jobInfo?jobInfo.job:'선택 안 함'}</b></span>
           </div>
         )}
         <div className="hidden xl:flex items-center gap-2 text-xs lg:text-sm font-bold bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm flex-wrap print:flex print:w-full print:border-none print:shadow-none print:p-0 print:gap-1.5 print:mt-1 print:justify-start">
@@ -2216,23 +2217,26 @@ function App() {
       guideBox:   { border:'1px solid #d1d5db', borderRadius:'12px', padding:'16px', background:'#f9fafb', display:'flex', flexDirection:'column', gap:'16px' },
     };
 
+    // 단락 번호: 인쇄에서 뺀 단락은 건너뛰고 1, 2, 3… 차례로
+    const secNo = {}; let secN = 1;
+    [['guide', reportShowGuide], ['job', reportShowJob], ['detail', reportShowDetail]].forEach(([k, on]) => { if (on) secNo[k] = ++secN; });
     return (
       <div style={RS.page}>
         <div id="report-wrapper" style={RS.wrapper}>
           <div className="no-print" style={RS.toolbar}>
             <h2 style={{fontSize:'1.25rem',fontWeight:900,color:'#1f2937'}}>나만의 선택과목 보고서 (인쇄 미리보기)</h2>
             <div style={{display:'flex',flexWrap:'wrap',gap:'8px',alignItems:'center',fontSize:'0.9rem',fontWeight:700,color:'#374151'}}>
-              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>2. 맞춤형 진로 가이드
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>맞춤형 진로 가이드
                 <select value={reportShowGuide?'y':'n'} onChange={e=>setReportShowGuide(e.target.value==='y')} aria-label="맞춤형 진로 가이드 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
                   <option value="y">인쇄 포함</option><option value="n">빼기</option>
                 </select>
               </label>
-              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>3. 관심 직업 정보
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>관심 직업 정보
                 <select value={reportShowJob?'y':'n'} onChange={e=>setReportShowJob(e.target.value==='y')} aria-label="관심 직업 정보 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
                   <option value="y">인쇄 포함</option><option value="n">빼기</option>
                 </select>
               </label>
-              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>4. 선택 과목 상세 정보
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>선택 과목 상세 정보
                 <select value={reportShowDetail?'y':'n'} onChange={e=>setReportShowDetail(e.target.value==='y')} aria-label="선택 과목 상세 정보 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
                   <option value="y">인쇄 포함</option><option value="n">빼기</option>
                 </select>
@@ -2259,7 +2263,7 @@ function App() {
 
           {reportShowGuide&&(
           <div className="report-section print-tight-section" style={{marginBottom:'32px'}}>
-            <h3 style={{...RS.secTitle, borderLeftColor:'#7c3aed', color:'#00512B'}}>🗺️ 2. 맞춤형 진로 가이드</h3>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#7c3aed', color:'#00512B'}}>🗺️ {secNo.guide}. 맞춤형 진로 가이드</h3>
             <div style={RS.guideBox} className="print-tight-guide">
               <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                 <span style={{fontWeight:700,color:'#374151',minWidth:'72px'}}>희망 계열:</span>
@@ -2312,7 +2316,7 @@ function App() {
 
           {reportShowJob&&(
           <div className="report-section print-tight-section" style={{marginBottom:'32px'}}>
-            <h3 style={{...RS.secTitle, borderLeftColor:'#2563eb', color:'#1e3a8a'}}>💼 3. 관심 직업 정보</h3>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#2563eb', color:'#1e3a8a'}}>💼 {secNo.job}. 관심 직업 정보</h3>
             {!jobInfo?(
               <p style={{fontSize:'0.875rem',color:'#6b7280',fontStyle:'italic',padding:'16px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'8px',textAlign:'center'}}>관심 직업을 고르지 않았습니다. [진로 찾기 → 직업으로 찾기]에서 골라 보세요.</p>
             ):(()=>{
@@ -2370,7 +2374,7 @@ function App() {
 
           {reportShowDetail&&(
           <div className="report-section">
-            <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 4. 선택 과목 상세 정보</h3>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 {secNo.detail}. 선택 과목 상세 정보</h3>
             {selectedSubjects.length===0&&(
               <p style={{fontSize:'0.875rem',color:'#6b7280',fontStyle:'italic',padding:'16px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'8px',textAlign:'center'}}>선택된 과목이 없습니다.</p>
             )}
