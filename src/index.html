@@ -93,6 +93,10 @@
       /* 긴 단락(진로 가이드·관심 직업 등)은 쪽을 넘겨 이어지게 하고, 제목만 홀로 남지 않게 / 표의 한 줄은 쪽 사이에서 잘리지 않게 */
       .report-section { page-break-inside: auto; break-inside: auto; margin-bottom: 12px !important; }
       .report-section > h3 { break-after: avoid; page-break-after: avoid; }
+      /* 선택 과목 상세 정보: 새 쪽에서 시작, 과목마다 한 쪽 (넘치면 인쇄 직전에 줄여서 한 쪽에 맞춤) */
+      .subj-detail-section { break-before: page; page-break-before: always; }
+      .subj-print-card { break-inside: avoid; page-break-inside: avoid; margin-bottom: 0 !important; }
+      .subj-print-card + .subj-print-card { break-before: page; page-break-before: always; }
       .report-section tr, .report-section th, .report-section td { break-inside: avoid; page-break-inside: avoid; }
       .print-tight-guide { break-inside: auto !important; page-break-inside: auto !important; }
 
@@ -1036,6 +1040,28 @@ function App() {
       window.removeEventListener('touchend', handleEnd); 
     };
   }, [isDraggingScience, isDraggingGeneral, isDraggingInfo]);
+
+  // 인쇄 직전: 선택 과목 상세 카드가 A4 한 쪽(세로)에 다 들어가도록 넘치는 카드만 줄임
+  useEffect(() => {
+    const PAGE_H = (297 - 8 - 12) / 25.4 * 96, PAGE_W = (210 - 24) / 25.4 * 96;   // 인쇄 여백을 뺀 쪽 크기(px)
+    const fit = () => {
+      const wrap = document.getElementById('report-wrapper'); if (!wrap) return;
+      const cards = [...wrap.querySelectorAll('.subj-print-card')]; if (!cards.length) return;
+      // 인쇄용 CSS가 width:100% !important 라서 잴 때도 !important 로 쪽 너비에 맞춤
+      const oldCss = wrap.style.cssText;
+      wrap.style.setProperty('width', PAGE_W + 'px', 'important'); wrap.style.setProperty('max-width', 'none', 'important'); wrap.style.setProperty('padding', '0', 'important');
+      cards.forEach((c, i) => {
+        c.style.zoom = '';
+        const head = i === 0 ? (c.parentElement.querySelector('h3')?.offsetHeight || 0) + 12 : 0;
+        const h = c.offsetHeight, room = (PAGE_H - head) * 0.96;
+        if (h > room) c.style.zoom = String(Math.max(0.45, room / h).toFixed(3));
+      });
+      wrap.style.cssText = oldCss;
+    };
+    const unfit = () => document.querySelectorAll('.subj-print-card').forEach(c => { c.style.zoom = ''; });
+    window.addEventListener('beforeprint', fit); window.addEventListener('afterprint', unfit);
+    return () => { window.removeEventListener('beforeprint', fit); window.removeEventListener('afterprint', unfit); };
+  }, []);
 
   // localStorage 불러오기
   useEffect(() => {
@@ -2373,7 +2399,7 @@ function App() {
           )}
 
           {reportShowDetail&&(
-          <div className="report-section">
+          <div className="report-section subj-detail-section">
             <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 {secNo.detail}. 선택 과목 상세 정보</h3>
             {selectedSubjects.length===0&&(
               <p style={{fontSize:'0.875rem',color:'#6b7280',fontStyle:'italic',padding:'16px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'8px',textAlign:'center'}}>선택된 과목이 없습니다.</p>
@@ -2385,7 +2411,7 @@ function App() {
               const validYtUrl = getValidYouTubeUrl(subj.popupData?.youtube);
 
               return (
-                <div key={subj.id} style={RS.card} className="print-tight-card">
+                <div key={subj.id} style={RS.card} className="print-tight-card subj-print-card">
                   <div style={RS.cardTitle}>
                     <div style={{display:'flex', alignItems:'center', gap:'10px',flexWrap:'wrap'}}>
                       <h4 style={{fontSize:'1.15rem',fontWeight:900,color:'#111827',margin:0}}>{subj.name}</h4>
