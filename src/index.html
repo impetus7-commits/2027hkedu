@@ -842,6 +842,7 @@ function App() {
   const [shareMsg, setShareMsg] = useState('');
   const [reportShowGuide, setReportShowGuide] = useState(true);
   const [reportShowDetail, setReportShowDetail] = useState(true);
+  const [reportShowJob, setReportShowJob] = useState(true);
   const [univSel, setUnivSel] = useState({ univ: '', college: '', unit: '' });
   const [dbSubjects, setDbSubjects] = useState([]);
   const [dbMandatory, setDbMandatory] = useState(DEFAULT_MANDATORY_SUBJECTS);
@@ -1022,6 +1023,7 @@ function App() {
         setIsScienceTrack(p.isScienceTrack||false);
         setIsGeneralTrack(p.isGeneralTrack||false);
         setStudentInfo(p.studentInfo||{studentNum:'',name:''});
+        if (p.selectedJob) setSelectedJob(p.selectedJob);
         setShowSciencePopup(p.isScienceTrack||false);
         setShowGeneralPopup(p.isGeneralTrack||false);
       } catch(e){}
@@ -1031,8 +1033,8 @@ function App() {
   // localStorage 저장
   useEffect(() => {
     if (SHARED) return;   // 공유 보기는 저장하지 않음
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo})); } catch (e) {}
-  }, [selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo]);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo,selectedJob})); } catch (e) {}
+  }, [selectedIds,selectedField,selectedMajor,isScienceTrack,isGeneralTrack,studentInfo,selectedJob]);
 
   useEffect(() => {
     if (!(SHARED && SHARED.code) || dbSubjects.length === 0) return;
@@ -1625,7 +1627,7 @@ function App() {
           {(m.semText||m.kind==='mandatory')&&<span className="font-medium">({[m.semText, m.kind==='mandatory'?'지정':''].filter(Boolean).join(', ')})</span>}
           {m.isCore&&<span className="text-xs text-white bg-rose-600 rounded px-1.5 py-0.5">핵심</span>}
           {!m.isSelected&&!SHARED&&m.entries.map(e=>(
-            <button key={e.id} type="button" onClick={()=>toggleSubject(e)} className="no-print text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-md px-2 py-1">
+            <button key={e.id} type="button" onClick={()=>{toggleSubject(e);revealSubjectInLeft(e);}} className="no-print text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-md px-2 py-1">
               {m.entries.length>1?`${groupMap[e.group]?.semester} 담기`:'담기'}
             </button>
           ))}
@@ -1799,6 +1801,21 @@ function App() {
     pane.scrollTo({ top: pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8, behavior: 'smooth' });
   };
   const goSubjects = () => scrollLeftTo(document.getElementById('subject-area'));
+  // 오른쪽 화면에서 [담기]를 누르면 왼쪽을 그 과목이 있는 학기 탭·선택군으로 옮기고 잠깐 반짝임 (휴대폰은 화면 이동 없이 학기만 맞춤)
+  const [flashSubjectId, setFlashSubjectId] = useState(null);
+  const revealSubjectInLeft = (subject) => {
+    const sem = groupMap[subject.group]?.semester;
+    if (sem) setActiveSemesterTab(sem);
+    setFlashSubjectId(subject.id);
+    setTimeout(() => {
+      const el = document.getElementById(`subj-card-${subject.id}`), pane = leftPaneRef.current;
+      if (!el || !pane || isMobile()) return;
+      // 카드를 칸의 가운데쯤에 두어 위쪽의 선택군 제목·학기도 함께 보이게
+      const top = pane.scrollTop + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - pane.clientHeight * 0.35;
+      pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }, 80);
+    setTimeout(() => setFlashSubjectId(f => f === subject.id ? null : f), 2600);
+  };
   const goSettings = () => scrollLeftTo(document.getElementById('settings-area'));
 
   // ── 진행 표시줄 ──
@@ -2141,7 +2158,12 @@ function App() {
                   <option value="y">인쇄 포함</option><option value="n">빼기</option>
                 </select>
               </label>
-              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>3. 선택 과목 상세 정보
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>3. 관심 직업 정보
+                <select value={reportShowJob?'y':'n'} onChange={e=>setReportShowJob(e.target.value==='y')} aria-label="관심 직업 정보 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
+                  <option value="y">인쇄 포함</option><option value="n">빼기</option>
+                </select>
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:'6px'}}>4. 선택 과목 상세 정보
                 <select value={reportShowDetail?'y':'n'} onChange={e=>setReportShowDetail(e.target.value==='y')} aria-label="선택 과목 상세 정보 인쇄 포함" style={{padding:'6px 8px',border:'2px solid #7FD3A3',borderRadius:'8px',fontWeight:700}}>
                   <option value="y">인쇄 포함</option><option value="n">빼기</option>
                 </select>
@@ -2219,9 +2241,67 @@ function App() {
           </div>
           )}
 
+          {reportShowJob&&(
+          <div className="report-section print-tight-section" style={{marginBottom:'32px'}}>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#2563eb', color:'#1e3a8a'}}>💼 3. 관심 직업 정보</h3>
+            {!jobInfo?(
+              <p style={{fontSize:'0.875rem',color:'#6b7280',fontStyle:'italic',padding:'16px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'8px',textAlign:'center'}}>관심 직업을 고르지 않았습니다. [진로 찾기 → 직업으로 찾기]에서 골라 보세요.</p>
+            ):(()=>{
+              const useOfficial = official && (official.exact || jobInfo.ai);
+              const rows = [
+                ['하는 일', useOfficial&&official.does ? official.does : jobInfo.does, useOfficial&&official.does?'커리어넷':''],
+                ['관련 학과', jobMajors.join(', '), ''],
+                ...(official?[['적성·흥미',official.aptitude,'커리어넷'],['관련 자격',official.certi,'커리어넷'],['임금',official.wage,'커리어넷'],['일자리 전망',official.forecast,'커리어넷'],['되는 길',official.prepare,'커리어넷']]:[]),
+              ].filter(r=>r[1]);
+              const subjRows = [...jobInfo.matched.filter(m=>m.kind!=='mandatory'), ...jobInfo.matched.filter(m=>m.kind==='mandatory')];
+              return (
+              <div style={RS.guideBox}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                  <span style={{fontWeight:700,color:'#374151',minWidth:'72px'}}>관심 직업:</span>
+                  <span style={{fontWeight:900,color:'#1e3a8a',fontSize:'1.1rem'}}>{jobInfo.job}</span>
+                  {jobInfo.ai&&<span style={{fontSize:'0.7rem',fontWeight:900,color:'white',background:'#dc2626',padding:'2px 8px',borderRadius:'6px'}}>AI추천</span>}
+                  {official&&!official.exact&&<span style={{fontSize:'0.75rem',color:'#6b7280'}}>(커리어넷 직업백과: {official.name})</span>}
+                </div>
+                {jobInfo.ai&&<p style={{fontSize:'0.8rem',fontWeight:700,color:'#b91c1c',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:'8px',padding:'8px 10px',margin:0}}>🤖 AI추천 (주의!! 상담 및 고민 필요) — {useOfficial?'추천 과목':'직업 설명과 추천 과목'}은 AI가 만든 참고 자료입니다. 담임·진로 선생님과 꼭 상담하세요.</p>}
+                <div style={RS.tblWrap}>
+                  <table style={RS.tbl} className="print-tight-table"><tbody>
+                    {rows.map(([k,v,src])=>(
+                      <tr key={k}><th style={{...RS.thBlue,width:'22%',background:'#dbeafe',color:'#1e3a8a'}}>{k}{src&&<div style={{fontSize:'0.6rem',fontWeight:500}}>({src})</div>}</th><td style={RS.td}>{v}</td></tr>
+                    ))}
+                  </tbody></table>
+                </div>
+                {subjRows.length>0&&(
+                  <div style={RS.tblWrap}>
+                    <div style={{fontWeight:900,fontSize:'0.85rem',color:'#1e3a8a',marginBottom:'6px'}}>📋 이 직업과 이어지는 우리 학교 과목 <span style={{fontWeight:500,color:'#6b7280'}}>(<mark style={{background:'#fde047',fontWeight:900,padding:'0 3px'}}>노란색</mark> = 내가 담은 과목·지정 과목)</span></div>
+                    <table style={RS.tbl} className="print-tight-table">
+                      <thead><tr>
+                        <th style={{...RS.thBlue,width:'9%'}}>구분</th><th style={{...RS.thBlue,width:'20%'}}>과목 (개설 학기)</th><th style={RS.thBlue}>왜? (이 직업에 필요한 이유)</th><th style={RS.thBlue}>무엇을? (배우는 내용)</th>
+                      </tr></thead>
+                      <tbody>{subjRows.map(m=>{
+                        const [why,learn]=(m.reason||'').split(/\s*→\s*/);
+                        const mine=m.isSelected;
+                        return (
+                          <tr key={m.name} style={mine?{background:'#fefce8'}:undefined}>
+                            <td style={RS.tdCenter}>{m.kind==='mandatory'?'지정':'선택'}</td>
+                            <td style={{...RS.td,fontWeight:mine?900:600}}>{mine?<mark style={{background:'#fde047',padding:'0 3px',borderRadius:'3px'}}>{m.name}</mark>:m.name}{m.semText&&<div style={{fontSize:'0.65rem',color:'#6b7280',fontWeight:500}}>({m.semText})</div>}</td>
+                            <td style={RS.td}>{why||'-'}</td>
+                            <td style={RS.td}>{learn||'-'}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  </div>
+                )}
+                {official&&<p style={{fontSize:'0.65rem',color:'#6b7280',margin:0}}>출처: 커리어넷 직업백과(교육부·한국직업능력연구원){official.updated?` · ${official.updated}`:''}</p>}
+              </div>
+              );
+            })()}
+          </div>
+          )}
+
           {reportShowDetail&&(
           <div className="report-section">
-            <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 3. 선택 과목 상세 정보</h3>
+            <h3 style={{...RS.secTitle, borderLeftColor:'#059669', color:'#064e3b'}}>📚 4. 선택 과목 상세 정보</h3>
             {selectedSubjects.length===0&&(
               <p style={{fontSize:'0.875rem',color:'#6b7280',fontStyle:'italic',padding:'16px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'8px',textAlign:'center'}}>선택된 과목이 없습니다.</p>
             )}
@@ -2876,7 +2956,7 @@ function App() {
                 else if(showFieldRec) borderClass='border-2 border-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.3)] animate-sparkle-orange';
 
                 return (
-                  <div key={subject.id} className={`relative p-2 lg:p-3 rounded-xl transition-all duration-300 flex flex-col group ${bgClass} ${borderClass}`}>
+                  <div key={subject.id} id={`subj-card-${subject.id}`} className={`relative p-2 lg:p-3 rounded-xl transition-all duration-300 flex flex-col group ${bgClass} ${borderClass} ${flashSubjectId===subject.id?'ring-4 ring-amber-400 ring-offset-2 scale-[1.03]':''}`}>
                     {showFieldRec&&<span className="absolute -top-3 -left-1 bg-orange-500 text-white text-[0.7rem] lg:text-[0.75rem] font-bold px-2 py-1 rounded-full shadow-lg z-10">✦ 계열 추천</span>}
                     {showMajorRec&&<span className="absolute -top-3 -right-1 bg-mblue-600 text-white text-[0.7rem] lg:text-[0.75rem] font-bold px-2 py-1 rounded-full shadow-lg z-10">✦ 학과 추천</span>}
                     <div className="flex flex-col items-start mb-2 mt-1">
@@ -3393,7 +3473,12 @@ function App() {
                         </>)}
                       </div>
                       {!univPanel.open?(
-                        <button onClick={()=>setUnivPanel(p=>({...p,open:true}))} className="self-start px-4 py-2 rounded-xl bg-white border-2 border-blue-400 text-blue-800 font-bold">🎓 관련 학과·대학도 살펴보기</button>
+                        <button onClick={()=>setUnivPanel(p=>({...p,open:true}))}
+                          className="w-full flex items-center justify-center gap-3 px-5 py-4 rounded-2xl bg-gradient-to-r from-mblue-600 to-mblue-800 hover:from-mblue-700 hover:to-mblue-900 text-white text-lg lg:text-xl font-black shadow-lg ring-4 ring-mblue-200 transition-transform active:scale-[0.98]">
+                          <span className="text-2xl lg:text-3xl">🎓</span>
+                          <span className="flex flex-col items-start leading-tight text-left break-keep">관련 학과·대학도 살펴보기<span className="text-xs lg:text-sm font-bold text-mblue-100">이 직업으로 가는 학과와 4년제·전문대학 찾기</span></span>
+                          <span className="ml-auto text-2xl">›</span>
+                        </button>
                       ):(
                         <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-4">
                           <div className="font-black text-slate-800 mb-1">🎓 이 직업으로 이어지는 학과와 대학</div>
