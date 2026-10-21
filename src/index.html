@@ -810,6 +810,19 @@ function App() {
   const [activeTab, setActiveTab] = useState('planner');
   const [activeSemesterTab, setActiveSemesterTab] = useState('2-1');
   const [isRightPanelExpanded, setIsRightPanelExpanded] = useState(false);
+  // 좌우 화면 비율 (왼쪽 %, PC에서 가운데 막대를 끌어 조절 · 이 기기에 기억)
+  const SPLIT_KEY = 'hwikyung_split';
+  //  왼쪽은 최소 380px(과목 카드 2줄), 오른쪽은 최소 460px(편제표)가 되도록 막음
+  const clampSplit = (v) => {
+    const w = (document.querySelector('main')?.clientWidth) || window.innerWidth;
+    const lo = Math.max(25, Math.ceil(380 / w * 100)), hi = Math.min(75, Math.floor(100 - 460 / w * 100));
+    return Math.min(Math.max(lo, hi), Math.max(lo, Math.round(v)));
+  };
+  const [splitPct, setSplitPct] = useState(() => { try { const v = parseFloat(localStorage.getItem(SPLIT_KEY)); return isNaN(v) ? 50 : clampSplit(v); } catch (e) { return 50; } });
+  const [isWide, setIsWide] = useState(() => window.innerWidth >= 768);
+  const [isSplitDragging, setIsSplitDragging] = useState(false);
+  useEffect(() => { const f = () => { setIsWide(window.innerWidth >= 768); setSplitPct(v => clampSplit(v)); }; window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  useEffect(() => { try { localStorage.setItem(SPLIT_KEY, String(splitPct)); } catch (e) {} }, [splitPct]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -894,6 +907,14 @@ function App() {
   // 좌·우 화면 따로 스크롤 (컴퓨터 화면): 마우스가 있는 쪽만 스크롤
   // 단, 위쪽 제목 영역이 보이는 동안은 페이지를 먼저 내려 제목을 올려 보냄
   const mainRef = useRef(null), leftPaneRef = useRef(null), rightPaneRef = useRef(null);
+  // 왼쪽 칸 너비에 따라 과목 카드 줄 수 (좌우 비율을 바꿔도 카드가 찌그러지지 않게)
+  const [leftW, setLeftW] = useState(600);
+  useEffect(() => {
+    const el = leftPaneRef.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setLeftW(Math.round(e.contentRect.width))); ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLoading]);
+  const cardCols = leftW >= 640 ? 'grid-cols-4' : leftW >= 470 ? 'grid-cols-3' : 'grid-cols-2';
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -2796,7 +2817,8 @@ function App() {
         </section>
       )}
 
-      <main ref={mainRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full flex-1 relative no-print items-stretch md:flex-none md:h-[calc(100vh-0.5rem)] md:grid-rows-[minmax(0,1fr)]">
+      <main ref={mainRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-x-0 w-full flex-1 relative no-print items-stretch md:flex-none md:h-[calc(100vh-0.5rem)] md:grid-rows-[minmax(0,1fr)]"
+        style={isWide?{gridTemplateColumns:isRightPanelExpanded?'minmax(0,1fr)':`minmax(0,${splitPct}fr) 18px minmax(0,${100-splitPct}fr)`}:undefined}>
         
         {/* ── 왼쪽 패널 ── */}
         <div ref={leftPaneRef} className={`w-full flex flex-col gap-3 relative md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:hidden' : 'md:flex'}`}>
@@ -2994,7 +3016,7 @@ function App() {
                   )}
                   {perTypeRule?(
                     <div className="flex flex-col gap-6 mt-6 mb-2">
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                      <div className={`grid ${leftW>=640?'grid-cols-3':'grid-cols-1'} gap-5`}>
                         {typeBoxes.map(({type,subjects})=>{
                           if(!subjects||subjects.length===0) return null;
                           return (
@@ -3008,7 +3030,7 @@ function App() {
                       {otherSubjects.length>0&&(
                         <div className="relative border-2 border-slate-300 rounded-2xl p-4 bg-white mt-3">
                           <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-slate-700 font-extrabold text-base border border-slate-200 rounded-md shadow-sm">그 외 선택 과목(선택가능 {otherPickLimit})</span>
-                          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3">{otherSubjects.map(s=>renderSubjectCard(s))}</div>
+                          <div className={`grid ${cardCols} gap-3 mt-3`}>{otherSubjects.map(s=>renderSubjectCard(s))}</div>
                         </div>
                       )}
                     </div>
@@ -3017,19 +3039,19 @@ function App() {
                       {cappedSubjects.length>0&&(
                         <div className="relative border-2 border-indigo-400 rounded-2xl p-4 bg-indigo-50/30 flex flex-col">
                           <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-indigo-700 font-extrabold text-base border border-indigo-200 rounded-md shadow-sm">최대 {capRule.maxCount}개</span>
-                          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3 flex-1">{cappedSubjects.map(s=>renderSubjectCard(s))}</div>
+                          <div className={`grid ${cardCols} gap-3 mt-3 flex-1`}>{cappedSubjects.map(s=>renderSubjectCard(s))}</div>
                         </div>
                       )}
                       {otherSubjects.length>0&&(
                         <div className="relative border-2 border-slate-300 rounded-2xl p-4 bg-white mt-3">
                           <span className="absolute -top-4 left-4 bg-white px-3 py-0.5 text-slate-700 font-extrabold text-base border border-slate-200 rounded-md shadow-sm">그 외 선택 과목</span>
-                          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-3">{otherSubjects.map(s=>renderSubjectCard(s))}</div>
+                          <div className={`grid ${cardCols} gap-3 mt-3`}>{otherSubjects.map(s=>renderSubjectCard(s))}</div>
                         </div>
                       )}
                     </div>
                   ):(
                     otherSubjects.length>0&&(
-                      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">{otherSubjects.map(s=>renderSubjectCard(s))}</div>
+                      <div className={`grid ${cardCols} gap-3`}>{otherSubjects.map(s=>renderSubjectCard(s))}</div>
                     )
                   )}
                 </div>
@@ -3039,7 +3061,23 @@ function App() {
         </div>
 
         {/* ── 오른쪽 패널 ── */}
-        <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:w-full md:col-span-2' : ''}`}>
+        {isWide&&!isRightPanelExpanded&&(
+          <div role="separator" aria-orientation="vertical" aria-label="좌우 화면 비율 조절" aria-valuemin={25} aria-valuemax={75} aria-valuenow={splitPct} tabIndex={0}
+            title={`끌어서 좌우 화면 비율 조절 (지금 ${splitPct} : ${100-splitPct}) · 두 번 누르면 반반`}
+            onPointerDown={e=>{ e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setIsSplitDragging(true); document.body.style.userSelect='none'; }}
+            onPointerMove={e=>{ if(!isSplitDragging||!mainRef.current) return; const r=mainRef.current.getBoundingClientRect(); setSplitPct(clampSplit((e.clientX-r.left)/r.width*100)); }}
+            onPointerUp={e=>{ setIsSplitDragging(false); document.body.style.userSelect=''; try{e.currentTarget.releasePointerCapture(e.pointerId);}catch(err){} }}
+            onDoubleClick={()=>setSplitPct(50)}
+            onKeyDown={e=>{ if(e.key==='ArrowLeft'){e.preventDefault();setSplitPct(v=>clampSplit(v-5));} if(e.key==='ArrowRight'){e.preventDefault();setSplitPct(v=>clampSplit(v+5));} if(e.key==='Home'){e.preventDefault();setSplitPct(50);} }}
+            className="group relative h-full cursor-col-resize flex items-center justify-center select-none touch-none outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded">
+            <div className={`h-full w-[3px] rounded-full transition-colors ${isSplitDragging?'bg-blue-500':'bg-slate-200 group-hover:bg-blue-400'}`}></div>
+            <div className={`absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center gap-0.5 w-[14px] h-14 rounded-full border-2 shadow-sm transition-colors ${isSplitDragging?'bg-blue-500 border-blue-600':'bg-white border-slate-300 group-hover:border-blue-400'}`}>
+              {[0,1,2].map(i=><span key={i} className={`block w-1 h-1 rounded-full ${isSplitDragging?'bg-white':'bg-slate-400'}`}></span>)}
+            </div>
+            {isSplitDragging&&<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[calc(50%+44px)] whitespace-nowrap px-2 py-1 rounded-md bg-slate-900 text-white text-xs font-black shadow">{splitPct} : {100-splitPct}</div>}
+          </div>
+        )}
+        <div ref={rightPaneRef} className={`w-full flex flex-col transition-all duration-300 md:h-full md:min-h-0 md:overflow-y-auto md:pr-1 custom-scrollbar ${isRightPanelExpanded ? 'md:w-full md:col-span-full' : ''}`}>
           
           {/* 메뉴: ① 진로 찾기 ② 과목 고르기 ③ 내 결과 ❓ 도움말 */}
           <div className="mb-2 border-b-2 border-slate-200 pb-2 no-print sticky top-0 bg-slate-100 z-[150] pt-2 flex flex-col gap-1.5">
