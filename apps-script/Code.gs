@@ -12,7 +12,6 @@
  *   ?list=1           → 기본정보 탭만 보냄 (입학년도 선택 화면용)
  *   ?univ=간호학과     → [대학학과정보] 탭에서 그 학과를 개설한 대학만 보냄 (관련 학과·대학 살펴보기)
  *   ?cjob=간호사       → [커리어넷직업] 탭에서 그 직업의 직업백과 내용만 보냄
- *   ?counsel=간호사    → 커리어넷 진로상담 사례를 그때그때 찾아서 보냄 (6시간 동안 저장해 두고 재사용)
  *
  * [대학학과정보]·[커리어넷직업] 탭은 시트 위쪽 메뉴 [🎓 대학 정보]로 채웁니다. (1년에 한 번)
  *   처음 한 번은 [🔑 커리어넷 인증키 저장]으로 인증키를 저장하세요. 키는 이 시트의 스크립트에만 보관되고 학생에게 보이지 않습니다.
@@ -29,7 +28,7 @@ function doGet(e) {
   var params = (e && e.parameter) || {};
   if (params.univ) return json_(findUniversities_(String(params.univ)));
   if (params.cjob) return json_(findCareerJobs_(String(params.cjob)));
-  if (params.counsel) return json_(findCounsel_(String(params.counsel)));
+  // ?counsel= (진로상담 사례)는 화면에서 쓰지 않으므로 꺼 둠 — 주소가 알려져도 커리어넷 인증키가 남용되지 않게
 
   var year = String(params.year || '');
   var listOnly = params.list === '1';
