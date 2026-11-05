@@ -85,12 +85,13 @@ function findUniversities_(query) {
             area: col('소재지'), dept: col('대학 학과명'), url: col('홈페이지') };
 
   var cores = query.split('|').map(majorCore_).filter(function (q) { return q.length >= 2; });
+  var kinds = loadSchoolKinds_();
   var rows = [];
   for (var i = 1; i < values.length && rows.length < 600; i++) {
     var r = values[i];
     var std = majorCore_(r[c.std]), dept = majorCore_(r[c.dept]);
     var matched = cores.some(function (q) { return std === q || dept === q || (q.length >= 3 && dept.indexOf(q) !== -1); });
-    if (matched) rows.push([r[c.std], r[c.field], r[c.kind], r[c.univ], r[c.campus], r[c.area], r[c.dept], r[c.url]]);
+    if (matched) rows.push([r[c.std], r[c.field], schoolKind_(r[c.univ], kinds), r[c.univ], r[c.campus], r[c.area], r[c.dept], r[c.url]]);
   }
   var result = { ready: true, updated: String(sheet.getRange(1, 10).getDisplayValue() || ''),
                  head: ['표준학과', '계열', '구분', '대학명', '캠퍼스', '소재지', '대학 학과명', '홈페이지'], rows: rows };
@@ -107,6 +108,7 @@ function onOpen() {
     .addItem('🔑 커리어넷 인증키 저장', 'saveCareerNetKey')
     .addItem('⬇️ 커리어넷에서 불러오기 (1년에 한 번)', 'startUniversityImport')
     .addItem('📘 커리어넷 직업백과 불러오기 (1년에 한 번)', 'startJobImport')
+    .addItem('🏫 4년제·전문대 구분 다시 맞추기', 'fixSchoolKinds')
     .addItem('⏹ 불러오기 멈추기', 'stopUniversityImport')
     .addToUi();
 }
@@ -132,16 +134,75 @@ function contentOf_(text) {
   return Array.isArray(c) ? c : (c ? [c] : []);
 }
 
-// 학교 이름으로 4년제/전문대 구분 (커리어넷 자료에 구분이 없을 때)
-function schoolKind_(name) {
-  name = String(name || '');
-  if (/대학교|과학기술원|KAIST|DGIST|UNIST|GIST|한국예술종합학교|사관학교|교육대학/.test(name)) return '4년제';
-  if (/전문대학|대학$|폴리텍/.test(name)) return '전문대';
+// ───────────── 4년제 / 전문대 구분 ─────────────
+// 2012년부터 전문대도 '○○대학교' 이름을 쓸 수 있어 이름만으로는 구분이 안 됨
+//  1) 커리어넷 학교정보(SCHOOL)에서 받은 학교 유형 → 2) 아래 '대학교' 이름을 쓰는 전문대 목록 → 3) 이름 규칙
+var JUNIOR_COLLEGES = ('경인여자대학교 동서울대학교 배화여자대학교 삼육보건대학교 서일대학교 숭의여자대학교 인덕대학교 한양여자대학교 ' +
+  '서울여자간호대학교 정화예술대학교 동양미래대학교 서울예술대학교 부천대학교 신구대학교 연성대학교 유한대학교 오산대학교 경민대학교 ' +
+  '경복대학교 계원예술대학교 김포대학교 농협대학교 대림대학교 동남보건대학교 동아방송예술대학교 두원공과대학교 서정대학교 수원과학대학교 ' +
+  '수원여자대학교 신안산대학교 안산대학교 여주대학교 용인예술과학대학교 장안대학교 청강문화산업대학교 한국관광대학교 국제대학교 ' +
+  '재능대학교 경기과학기술대학교 동원대학교 강동대학교 한국영상대학교 고구려대학교 강릉영동대학교 송곡대학교 송호대학교 한림성심대학교 ' +
+  '강원관광대학교 세경대학교 대원대학교 충북보건과학대학교 충청대학교 백석문화대학교 신성대학교 아주자동차대학교 혜전대학교 ' +
+  '대전과학기술대학교 대전보건대학교 전주비전대학교 군장대학교 원광보건대학교 전북과학대학교 백제예술대학교 광주보건대학교 ' +
+  '기독간호대학교 동강대학교 서영대학교 조선간호대학교 조선이공대학교 목포과학대학교 순천제일대학교 전남과학대학교 청암대학교 한영대학교 ' +
+  '경북전문대학교 구미대학교 대경대학교 문경대학교 선린대학교 성덕대학교 안동과학대학교 영남이공대학교 영진전문대학교 계명문화대학교 ' +
+  '대구과학대학교 대구보건대학교 수성대학교 호산대학교 가톨릭상지대학교 포항대학교 경북과학대학교 대구공업대학교 거제대학교 김해대학교 ' +
+  '마산대학교 연암공과대학교 진주보건대학교 창원문성대학교 한국승강기대학교 동의과학대학교 부산경상대학교 부산과학기술대학교 ' +
+  '부산여자대학교 경남정보대학교 대동대학교 동부산대학교 동주대학교 춘해보건대학교 울산과학대학교 제주한라대학교 제주관광대학교 ' +
+  '경기과학기술대학교 서울보건대학교 한국골프대학교 동아보건대학교 광양보건대학교 장안대학교 한국농수산대학교').split(' ');
+function schoolCore_(name) { return String(name || '').replace(/\(.*?\)/g, '').replace(/\s+/g, ''); }
+function schoolKind_(name, kinds) {
+  var n = schoolCore_(name);
+  if (kinds && kinds[n]) return kinds[n];
+  if (JUNIOR_COLLEGES.indexOf(n) !== -1) return '전문대';
+  if (/전문대학|폴리텍|기능대학/.test(n)) return '전문대';
+  if (/사이버대학/.test(n)) return '사이버대';
+  if (/대학교$|과학기술원|KAIST|DGIST|UNIST|GIST|한국예술종합학교|사관학교|교육대학|대학원대학/.test(n)) return '4년제';
+  if (/대학$/.test(n)) return '전문대';
   return '기타';
+}
+// 커리어넷 학교정보에서 학교 유형 받아 두기 (학교명 → 4년제/전문대)
+function fetchSchoolKinds_() {
+  var kinds = {};
+  [['univ_list', '']].forEach(function (g) {
+    for (var page = 1; page <= 10; page++) {
+      var res = UrlFetchApp.fetch(careerNet_({ svcCode: 'SCHOOL', gubun: g[0], perPage: 500, thisPage: page }), { muteHttpExceptions: true });
+      if (page === 1) saveSample_('학교 목록', res.getContentText());
+      var list = []; try { list = contentOf_(res.getContentText()); } catch (e) { list = []; }
+      if (!list.length) break;
+      list.forEach(function (sc) {
+        var name = schoolCore_(sc.schoolName || sc.school_name || '');
+        if (!name) return;
+        var t = [sc.schoolGubun, sc.schoolType, sc.estType, sc.gubun, sc.schoolKind].filter(Boolean).join(' ');
+        if (/전문/.test(t)) kinds[name] = '전문대';
+        else if (/사이버|원격/.test(t)) kinds[name] = '사이버대';
+        else if (/대학교|4년|일반대|교육대|산업대/.test(t)) kinds[name] = '4년제';
+      });
+      if (list.length < 500) break;
+    }
+  });
+  return kinds;
+}
+function loadSchoolKinds_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('SCHOOL_KINDS') || '{}'); } catch (e) { return {}; } }
+
+// 시트 메뉴: 이미 불러온 [대학학과정보]의 '구분' 칸만 다시 맞추기
+function fixSchoolKinds() {
+  var kinds = {};
+  try { kinds = fetchSchoolKinds_(); } catch (e) { kinds = {}; }
+  try { PropertiesService.getScriptProperties().setProperty('SCHOOL_KINDS', JSON.stringify(kinds)); } catch (e) {}
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(UNIV_TAB);
+  if (!sheet || sheet.getLastRow() < 2) { SpreadsheetApp.getUi().alert('[대학학과정보] 탭이 비어 있습니다. 먼저 [커리어넷에서 불러오기]를 하세요.'); return; }
+  var range = sheet.getRange(2, 3, sheet.getLastRow() - 1, 2);   // C(구분)·D(대학명)
+  var vals = range.getValues(), changed = 0;
+  vals.forEach(function (r) { var k = schoolKind_(r[1], kinds); if (k !== r[0]) { r[0] = k; changed++; } });
+  range.setValues(vals);
+  PropertiesService.getScriptProperties().setProperty('UNIV_VERSION', String(Date.now()));
+  SpreadsheetApp.getUi().alert('구분을 다시 맞췄습니다. 바뀐 줄: ' + changed + '줄 (학교정보에서 받은 학교 ' + Object.keys(kinds).length + '곳)');
 }
 
 function startUniversityImport() {
   var props = PropertiesService.getScriptProperties();
+  try { props.setProperty('SCHOOL_KINDS', JSON.stringify(fetchSchoolKinds_())); } catch (e) {}
   // 1) 표준학과 목록 받기
   var list = [];
   ['univ_list'].forEach(function (gubun) {
@@ -172,6 +233,7 @@ function continueUniversityImport() {
   clearTriggers_('continueUniversityImport');
   if (!state) return;
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(UNIV_TAB);
+  var kinds = loadSchoolKinds_();
 
   while (state.next < state.list.length) {
     if (Date.now() - started > RUN_LIMIT_MS) {   // 시간이 다 되면 1분 뒤 이어서
@@ -196,7 +258,7 @@ function continueUniversityImport() {
         univs.forEach(function (u) {
           var school = u.schoolName || u.univ_nm || '';
           if (!school) return;
-          out.push([m.name, m.field, u.schoolGubun || schoolKind_(school), school, u.campus_nm || u.campusName || '',
+          out.push([m.name, m.field, schoolKind_(school, kinds), school, u.campus_nm || u.campusName || '',
                     u.area || u.region || '', u.majorName || u.major_nm || '', u.schoolURL || u.url || '']);
         });
       });
