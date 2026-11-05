@@ -439,12 +439,16 @@ function findCareerJobs_(query) {
   if (!sheet || sheet.getLastRow() < 2) return { ready: false, rows: [] };
   var values = sheet.getDataRange().getDisplayValues();
   var qs = query.split('|').map(jobCore_).filter(function (q) { return q.length >= 2; });
+  // 끝말이 달라도 찾기: '보안전문가' ↔ '정보보안전문가', '웹디자이너' ↔ '웹디자인', '소프트웨어개발자' ↔ '소프트웨어개발'
+  var stem = function (w) { return w.replace(/(전문가|종사자|관련직|관련|담당자|기술자|기획자|개발자|디자이너|매니저|컨설턴트|코디네이터|상담사|관리자|연구원|사)$/, ''); };
+  var stems = qs.map(stem).filter(function (q) { return q.length >= 2; });
   var exact = [], near = [];
   for (var i = 1; i < values.length; i++) {
     var n = jobCore_(values[i][0]);
     if (!n) continue;
     if (qs.indexOf(n) !== -1) exact.push(values[i].slice(0, JOB_HEAD.length));
-    else if (qs.some(function (q) { return (q.length >= 3 && n.indexOf(q) !== -1) || (n.length >= 3 && q.indexOf(n) !== -1) || looseJob_(q, n); })) near.push(values[i].slice(0, JOB_HEAD.length));
+    else if (qs.some(function (q) { return (q.length >= 3 && n.indexOf(q) !== -1) || (n.length >= 3 && q.indexOf(n) !== -1) || looseJob_(q, n); })
+          || stems.some(function (q) { var ns = stem(n); return q.length >= 3 && (ns === q || ns.indexOf(q) !== -1 || (ns.length >= 3 && q.indexOf(ns) !== -1)); })) near.push(values[i].slice(0, JOB_HEAD.length));
   }
   var result = { ready: true, updated: String(sheet.getRange(1, 12).getDisplayValue() || ''), head: JOB_HEAD, rows: exact.concat(near).slice(0, 4), exact: exact.length };
   try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch (err) {}

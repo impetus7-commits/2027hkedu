@@ -1525,14 +1525,14 @@ function App() {
         const jh = rows[0];
         const ji = { job: headerIndex(jh, '직업'), subs: headerIndex(jh, '휘경여고개설필요(관련)과목', '관련과목', '과목'),
                      does: headerIndex(jh, '하는일', '직업소개'), why: headerIndex(jh, '과목별추천이유', '추천이유'),
-                     field: headerIndex(jh, '계열', '분야'), majors: headerIndex(jh, '관련학과'), majorWhy: headerIndex(jh, '학과별추천이유') };
+                     field: headerIndex(jh, '계열', '분야'), majors: headerIndex(jh, '관련학과'), majorWhy: headerIndex(jh, '학과별추천이유'), cnet: headerIndex(jh, '커리어넷직업명', '직업백과이름') };
         return rows.slice(1).map(r => {
           const reasons = {};
           cell(r, ji.why).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) reasons[normLoose(m[1])] = m[2].trim(); });
           const majorWhy = {};   // '학과명: 이유' 한 줄씩
           cell(r, ji.majorWhy).split('\n').forEach(line => { const m = line.match(/^\s*([^:：]+)[:：]\s*(.+)$/); if (m) majorWhy[normLoose(m[1])] = m[2].trim(); });
           return { job: cell(r, ji.job === -1 ? 0 : ji.job), subjectsText: cell(r, ji.subs === -1 ? 1 : ji.subs), does: cell(r, ji.does), reasons, whyRaw: cell(r, ji.why), hasWhyColumn: ji.why !== -1,
-                   ai, field: cell(r, ji.field), majors: cell(r, ji.majors), majorWhy };
+                   ai, field: cell(r, ji.field), majors: cell(r, ji.majors), majorWhy, cnet: cell(r, ji.cnet) };
         }).filter(j => j.job);
       };
       const sheetJobs = parseJobRows(parsedJobs, false);
@@ -2041,7 +2041,8 @@ function App() {
   useEffect(() => {
     setCjobPick(0);
     if (!jobInfo) return;
-    const key = jobNameParts(jobInfo.job).join('|');
+    // 시트의 '커리어넷 직업명'(선생님이 짝지어 준 이름)을 먼저, 그다음 직업 이름 조각
+    const key = [...jobNameParts(jobInfo.cnet), ...jobNameParts(jobInfo.job)].join('|');
     if (cjobCacheRef.current[key]) { setCjob({ key, data: cjobCacheRef.current[key] }); return; }
     setCjob({ key, data: null });
     fetchSheet({ cjob: key }, 1).then(t => { const d = JSON.parse(t); if (!('ready' in d)) return; cjobCacheRef.current[key] = d; setCjob(c => c.key === key ? { key, data: d } : c); }).catch(() => {});
@@ -3604,30 +3605,36 @@ function App() {
                         <div className="text-sm text-slate-600 break-keep"><b>관련 과목:</b> {jobInfo.subjectsText}</div>
                         {jobInfo.majors&&<div className="text-sm text-slate-600 break-keep"><b>관련 학과:</b> {jobInfo.majors}</div>}
                       </div>
-                      {official&&(()=>{
-                        // ── 직업백과 인포그래픽: 임금(큰 숫자·범위 막대) · 일자리 전망(5단계) · 하는 일(번호) · 되는 길(단계) · 태그 ──
-                        const wageNums=[...String(official.wage||'').matchAll(/(\d[\d,.]*)\s*만\s*원/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>0);
-                        const wageMain=wageNums.length?(String(official.wage).match(/(?:평균|중위|중간)[^\d]{0,6}(\d[\d,.]*)\s*만\s*원/)?.[1]?.replace(/,/g,'')||wageNums[Math.floor((wageNums.length-1)/2)]):null;
+                      {(()=>{
+                        // ── 직업 한눈에: 모든 직업이 같은 칸을 같은 순서로 (자료가 없는 칸은 '정보 없음'과 커리어넷 확인 링크) ──
+                        const hasOff=!!official;
+                        const official_=official||{name:jobInfo.job,does:'',aptitude:'',departs:'',certi:'',wage:'',forecast:'',prepare:'',url:'',exact:false,all:[],updated:''};
+                        const wageNums=[...String(official_.wage||'').matchAll(/(\d[\d,.]*)\s*만\s*원/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>0);
+                        const wageMain=wageNums.length?(String(official_.wage).match(/(?:평균|중위|중간)[^\d]{0,6}(\d[\d,.]*)\s*만\s*원/)?.[1]?.replace(/,/g,'')||wageNums[Math.floor((wageNums.length-1)/2)]):null;
                         const wageLo=wageNums.length>1?Math.min(...wageNums):null, wageHi=wageNums.length>1?Math.max(...wageNums):null;
-                        const fText=String(official.forecast||'');
+                        const fText=String(official_.forecast||'');
                         const STEPS=[['감소','▼▼'],['다소 감소','▼'],['유지','■'],['다소 증가','▲'],['증가','▲▲']];
                         const fIdx=/다소\s*감소|약간\s*감소/.test(fText)?1:/감소/.test(fText)?0:/다소\s*증가|약간\s*증가/.test(fText)?3:/증가|늘어|확대/.test(fText)?4:/유지|비슷|현\s*상태/.test(fText)?2:-1;
                         const listOf=t=>String(t||'').split(/\n|(?<=\.)\s+(?=\S)/).map(x=>x.replace(/^[\s\-·•\d.)]+/,'').trim()).filter(x=>x.length>1);
                         const tagsOf=t=>String(t||'').split(/[,\/\n]/).map(x=>x.replace(/\s*등$/,'').trim()).filter(Boolean);
-                        const does=listOf(official.does).slice(0,6), steps=String(official.prepare||'').split(/\s*(?:→|->|>|\n)\s*/).length>1?String(official.prepare).split(/\s*(?:→|->|>|\n)\s*/).filter(Boolean):listOf(official.prepare);
+                        const doesSrc=official_.does?'커리어넷':jobInfo.ai?'AI':'시트'; const does=listOf(official_.does||jobInfo.does).slice(0,6), steps=String(official_.prepare||'').split(/\s*(?:→|->|>|\n)\s*/).length>1?String(official_.prepare).split(/\s*(?:→|->|>|\n)\s*/).filter(Boolean):listOf(official_.prepare);
                         const tile='rounded-xl border-2 border-mblue-100 bg-white p-3 flex flex-col gap-1 min-w-0';
+                        const searchUrl=`https://www.google.com/search?q=${encodeURIComponent('커리어넷 직업정보 '+jobNameParts(jobInfo.job)[0])}`;
+                        const Missing=({what})=><div className="text-sm text-slate-400 font-bold">정보 없음 <a href={official_.url||searchUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-xs font-bold text-mblue-700 underline">커리어넷에서 {what} 확인 ›</a></div>;
+                        const Src=({k})=><span className={`ml-1 align-middle text-[10px] font-black px-1 rounded ${k==='커리어넷'?'bg-mblue-100 text-mblue-800':k==='AI'?'bg-red-100 text-red-700':'bg-slate-100 text-slate-600'}`}>{k}</span>;
                         const fmt=n=>Number(n).toLocaleString('ko-KR');
                         return (
                         <div className="rounded-2xl border-2 border-mblue-200 bg-mblue-50/40 p-4 break-keep">
                           <div className="flex flex-wrap items-center gap-2 mb-3">
-                            <span className="font-black text-mblue-900 text-base lg:text-lg">📘 커리어넷 직업백과 — {official.name}</span>
-                            {!official.exact&&<span className="text-xs font-bold text-slate-500">(비슷한 직업)</span>}
-                            {official.all.length>1&&official.all.map((n,i)=><button key={i} onClick={()=>setCjobPick(i)} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${i===cjobPick?'bg-mblue-700 text-white border-mblue-700':'bg-white text-mblue-800 border-mblue-300'}`}>{n}</button>)}
+                            <span className="font-black text-mblue-900 text-base lg:text-lg">📘 직업 정보 한눈에 — {official_.name}</span>
+                            {hasOff&&!official_.exact&&<span className="text-xs font-bold text-slate-500">(커리어넷의 비슷한 직업)</span>}
+                            {!hasOff&&<span className="text-xs font-bold text-slate-500">(커리어넷 직업백과에 아직 이 직업이 없습니다)</span>}
+                            {official_.all.length>1&&official_.all.map((n,i)=><button key={i} onClick={()=>setCjobPick(i)} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${i===cjobPick?'bg-mblue-700 text-white border-mblue-700':'bg-white text-mblue-800 border-mblue-300'}`}>{n}</button>)}
                           </div>
-                          {(official.wage||official.forecast)&&(
+                          {(
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                              {official.wage&&(
-                                <div className={tile} title={official.wage}>
+                              {!official_.wage?(<div className={tile}><div className="text-xs lg:text-sm font-black text-slate-600">💰 임금 (연봉)</div><Missing what="임금"/></div>):(
+                                <div className={tile} title={official_.wage}>
                                   <div className="text-xs lg:text-sm font-black text-slate-600">💰 임금 (연봉)</div>
                                   {wageMain?(<>
                                     <div className="text-3xl lg:text-4xl font-black text-slate-900 leading-tight">{fmt(wageMain)}<span className="text-base lg:text-lg font-bold text-slate-600 ml-1">만 원</span></div>
@@ -3640,11 +3647,11 @@ function App() {
                                         <div className="flex justify-between text-[11px] lg:text-xs font-bold text-slate-500 mt-0.5"><span>{fmt(wageLo)}만</span><span>{fmt(wageHi)}만</span></div>
                                       </div>
                                     )}
-                                    <div className="text-xs text-slate-500 line-clamp-2">{official.wage}</div>
-                                  </>):<div className="text-sm lg:text-base font-bold text-slate-800">{official.wage}</div>}
+                                    <div className="text-xs text-slate-500 line-clamp-2">{official_.wage}</div>
+                                  </>):<div className="text-sm lg:text-base font-bold text-slate-800">{official_.wage}</div>}
                                 </div>
                               )}
-                              {official.forecast&&(
+                              {!official_.forecast?(<div className={tile}><div className="text-xs lg:text-sm font-black text-slate-600">📈 일자리 전망 (앞으로 10년)</div><Missing what="전망"/></div>):(
                                 <div className={tile}>
                                   <div className="text-xs lg:text-sm font-black text-slate-600">📈 일자리 전망 (앞으로 10년)</div>
                                   {fIdx>=0&&(<>
@@ -3659,17 +3666,19 @@ function App() {
                               )}
                             </div>
                           )}
-                          {does.length>0&&(
+                          {(
                             <div className="mb-3">
-                              <div className="text-sm lg:text-base font-black text-mblue-900 mb-1">💼 하는 일</div>
+                              <div className="text-sm lg:text-base font-black text-mblue-900 mb-1">💼 하는 일<Src k={doesSrc}/></div>
+                              {does.length===0&&<Missing what="하는 일"/>}
                               <ol className="flex flex-col gap-1">{does.map((d,i)=>(
                                 <li key={i} className="flex gap-2 items-start text-sm lg:text-base text-slate-800"><span className="shrink-0 w-6 h-6 rounded-full bg-mblue-600 text-white text-xs font-black flex items-center justify-center">{i+1}</span><span>{d}</span></li>
                               ))}</ol>
                             </div>
                           )}
-                          {steps.length>0&&(
+                          {(
                             <div className="mb-3">
                               <div className="text-sm lg:text-base font-black text-mblue-900 mb-1">🧭 이 직업이 되는 길</div>
+                              {steps.length===0&&<Missing what="되는 길"/>}
                               <div className="flex flex-wrap items-stretch gap-1.5">{steps.slice(0,6).map((st,i)=>(
                                 <React.Fragment key={i}>
                                   {i>0&&<span aria-hidden="true" className="hidden sm:inline self-center text-mblue-400 font-black">›</span>}
@@ -3679,26 +3688,28 @@ function App() {
                             </div>
                           )}
                           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-                            {[['🧠 적성·흥미',tagsOf(official.aptitude),'bg-violet-50 text-violet-900 border-violet-200',null],
-                              ['🎓 관련 학과',tagsOf(official.departs),'bg-mblue-50 text-mblue-900 border-mblue-200',m=>{setUnivPanel(p=>({...p,open:true}));loadUniversities(m);}],
-                              ['📜 관련 자격',tagsOf(official.certi),'bg-amber-50 text-amber-900 border-amber-200',null]].filter(([,t])=>t.length).map(([title,tags,cls,onTag])=>(
+                            {[['🧠 적성·흥미',tagsOf(official_.aptitude),'bg-violet-50 text-violet-900 border-violet-200',null],
+                              ['🎓 관련 학과',official_.departs?tagsOf(official_.departs):jobMajors,'bg-mblue-50 text-mblue-900 border-mblue-200',m=>{setUnivPanel(p=>({...p,open:true}));loadUniversities(m);}],
+                              ['📜 관련 자격',tagsOf(official_.certi),'bg-amber-50 text-amber-900 border-amber-200',null]].map(([title,tags,cls,onTag])=>(
                               <div key={title} className="rounded-xl bg-white border-2 border-slate-100 p-2.5">
                                 <div className="text-xs lg:text-sm font-black text-slate-600 mb-1">{title}</div>
+                                {tags.length===0&&<Missing what={title.slice(3)}/>}
                                 <div className="flex flex-wrap gap-1">{tags.slice(0,10).map(t=>onTag
                                   ?<button key={t} onClick={()=>onTag(t)} title="이 학과가 있는 대학 보기" className={`px-2 py-0.5 rounded-full border text-xs lg:text-sm font-bold hover:underline ${cls}`}>{t} ›</button>
                                   :<span key={t} className={`px-2 py-0.5 rounded-full border text-xs lg:text-sm font-bold ${cls}`}>{t}</span>)}</div>
                               </div>
                             ))}
                           </div>
-                          <details className="mt-3">
+                          {hasOff&&<details className="mt-3">
                             <summary className="cursor-pointer text-xs lg:text-sm font-bold text-mblue-800">📋 표로 보기 (원문 그대로)</summary>
                             <table className="mt-2 w-full border-collapse text-sm bg-white">
-                              <tbody>{[['하는 일',official.does],['적성·흥미',official.aptitude],['관련 학과',official.departs],['관련 자격',official.certi],['임금',official.wage],['일자리 전망',official.forecast],['되는 길',official.prepare]].filter(([,v])=>v).map(([k,v])=>(
+                              <tbody>{[['하는 일',official_.does],['적성·흥미',official_.aptitude],['관련 학과',official_.departs],['관련 자격',official_.certi],['임금',official_.wage],['일자리 전망',official_.forecast],['되는 길',official_.prepare]].filter(([,v])=>v).map(([k,v])=>(
                                 <tr key={k} className="border-t border-slate-200 align-top"><th className="w-[7rem] p-2 text-left font-black text-mblue-900 bg-mblue-50">{k}</th><td className="p-2 text-slate-800 whitespace-pre-line">{v}</td></tr>
                               ))}</tbody>
                             </table>
-                          </details>
-                          <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 직업백과(교육부·한국직업능력연구원){official.updated?` · ${official.updated}`:''}{official.url&&<> · <a href={official.url} target="_blank" rel="noopener noreferrer" className="font-bold text-mblue-700 underline">커리어넷에서 자세히 보기</a></>}</p>
+                          </details>}
+                          {!hasOff?<p className="mt-2 text-xs text-slate-500">출처: 우리 학교 시트{jobInfo.ai?' (AI추천 자료 – 주의!! 상담 및 고민 필요)':''} · 임금·전망 등은 커리어넷 직업백과에 이 직업이 생기면 채워집니다.</p>:
+                          <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 직업백과(교육부·한국직업능력연구원){official_.updated?` · ${official_.updated}`:''}{official_.url&&<> · <a href={official_.url} target="_blank" rel="noopener noreferrer" className="font-bold text-mblue-700 underline">커리어넷에서 자세히 보기</a></>}</p>}
                         </div>
                         );
                       })()}
