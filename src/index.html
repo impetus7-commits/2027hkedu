@@ -3604,24 +3604,104 @@ function App() {
                         <div className="text-sm text-slate-600 break-keep"><b>관련 과목:</b> {jobInfo.subjectsText}</div>
                         {jobInfo.majors&&<div className="text-sm text-slate-600 break-keep"><b>관련 학과:</b> {jobInfo.majors}</div>}
                       </div>
-                      {official&&(
+                      {official&&(()=>{
+                        // ── 직업백과 인포그래픽: 임금(큰 숫자·범위 막대) · 일자리 전망(5단계) · 하는 일(번호) · 되는 길(단계) · 태그 ──
+                        const wageNums=[...String(official.wage||'').matchAll(/(\d[\d,.]*)\s*만\s*원/g)].map(m=>parseFloat(m[1].replace(/,/g,''))).filter(n=>n>0);
+                        const wageMain=wageNums.length?(String(official.wage).match(/(?:평균|중위|중간)[^\d]{0,6}(\d[\d,.]*)\s*만\s*원/)?.[1]?.replace(/,/g,'')||wageNums[Math.floor((wageNums.length-1)/2)]):null;
+                        const wageLo=wageNums.length>1?Math.min(...wageNums):null, wageHi=wageNums.length>1?Math.max(...wageNums):null;
+                        const fText=String(official.forecast||'');
+                        const STEPS=[['감소','▼▼'],['다소 감소','▼'],['유지','■'],['다소 증가','▲'],['증가','▲▲']];
+                        const fIdx=/다소\s*감소|약간\s*감소/.test(fText)?1:/감소/.test(fText)?0:/다소\s*증가|약간\s*증가/.test(fText)?3:/증가|늘어|확대/.test(fText)?4:/유지|비슷|현\s*상태/.test(fText)?2:-1;
+                        const listOf=t=>String(t||'').split(/\n|(?<=\.)\s+(?=\S)/).map(x=>x.replace(/^[\s\-·•\d.)]+/,'').trim()).filter(x=>x.length>1);
+                        const tagsOf=t=>String(t||'').split(/[,\/\n]/).map(x=>x.replace(/\s*등$/,'').trim()).filter(Boolean);
+                        const does=listOf(official.does).slice(0,6), steps=String(official.prepare||'').split(/\s*(?:→|->|>|\n)\s*/).length>1?String(official.prepare).split(/\s*(?:→|->|>|\n)\s*/).filter(Boolean):listOf(official.prepare);
+                        const tile='rounded-xl border-2 border-mblue-100 bg-white p-3 flex flex-col gap-1 min-w-0';
+                        const fmt=n=>Number(n).toLocaleString('ko-KR');
+                        return (
                         <div className="rounded-2xl border-2 border-mblue-200 bg-mblue-50/40 p-4 break-keep">
-                          <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="font-black text-mblue-900">📘 커리어넷 직업백과 — {official.name}</span>
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            <span className="font-black text-mblue-900 text-base lg:text-lg">📘 커리어넷 직업백과 — {official.name}</span>
                             {!official.exact&&<span className="text-xs font-bold text-slate-500">(비슷한 직업)</span>}
                             {official.all.length>1&&official.all.map((n,i)=><button key={i} onClick={()=>setCjobPick(i)} className={`text-xs font-bold px-2 py-0.5 rounded-full border ${i===cjobPick?'bg-mblue-700 text-white border-mblue-700':'bg-white text-mblue-800 border-mblue-300'}`}>{n}</button>)}
                           </div>
-                          <dl className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm lg:text-base">
-                            {[['하는 일',official.does],['적성·흥미',official.aptitude],['관련 학과',official.departs],['관련 자격',official.certi],['임금',official.wage],['일자리 전망',official.forecast],['되는 길',official.prepare]].filter(([,v])=>v).map(([k,v])=>(
-                              <React.Fragment key={k}>
-                                <dt className="font-black text-mblue-900">{k}</dt>
-                                <dd className="text-slate-800 whitespace-pre-line">{v.length>420?v.slice(0,420)+'…':v}</dd>
-                              </React.Fragment>
+                          {(official.wage||official.forecast)&&(
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                              {official.wage&&(
+                                <div className={tile} title={official.wage}>
+                                  <div className="text-xs lg:text-sm font-black text-slate-600">💰 임금 (연봉)</div>
+                                  {wageMain?(<>
+                                    <div className="text-3xl lg:text-4xl font-black text-slate-900 leading-tight">{fmt(wageMain)}<span className="text-base lg:text-lg font-bold text-slate-600 ml-1">만 원</span></div>
+                                    {wageLo!=null&&wageHi>wageLo&&(
+                                      <div className="mt-1" role="img" aria-label={`임금 범위 ${fmt(wageLo)}만 원 ~ ${fmt(wageHi)}만 원`}>
+                                        <div className="relative h-2 rounded-full bg-mblue-100">
+                                          <div className="absolute inset-y-0 left-0 right-0 rounded-full bg-mblue-500"></div>
+                                          <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-mblue-700" style={{left:`calc(${(wageMain-wageLo)/(wageHi-wageLo)*100}% - 6px)`}}></div>
+                                        </div>
+                                        <div className="flex justify-between text-[11px] lg:text-xs font-bold text-slate-500 mt-0.5"><span>{fmt(wageLo)}만</span><span>{fmt(wageHi)}만</span></div>
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-slate-500 line-clamp-2">{official.wage}</div>
+                                  </>):<div className="text-sm lg:text-base font-bold text-slate-800">{official.wage}</div>}
+                                </div>
+                              )}
+                              {official.forecast&&(
+                                <div className={tile}>
+                                  <div className="text-xs lg:text-sm font-black text-slate-600">📈 일자리 전망 (앞으로 10년)</div>
+                                  {fIdx>=0&&(<>
+                                    <div className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight"><span aria-hidden="true" className="text-mblue-700 mr-1">{STEPS[fIdx][1]}</span>{STEPS[fIdx][0]}</div>
+                                    <div className="grid grid-cols-5 gap-0.5" role="img" aria-label={`일자리 전망: 5단계 중 ${STEPS[fIdx][0]}`}>
+                                      {STEPS.map(([lab],i)=><div key={i} className={`h-2 rounded-full ${i===fIdx?'bg-mblue-600':'bg-mblue-100'}`}></div>)}
+                                    </div>
+                                    <div className="grid grid-cols-5 text-[10px] lg:text-[11px] font-bold text-slate-500 text-center">{STEPS.map(([lab],i)=><span key={i} className={i===fIdx?'text-mblue-800 font-black':''}>{lab}</span>)}</div>
+                                  </>)}
+                                  <div className={`${fIdx>=0?'text-xs text-slate-500 line-clamp-3':'text-sm lg:text-base font-bold text-slate-800'}`}>{fText.length>220?fText.slice(0,220)+'…':fText}</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {does.length>0&&(
+                            <div className="mb-3">
+                              <div className="text-sm lg:text-base font-black text-mblue-900 mb-1">💼 하는 일</div>
+                              <ol className="flex flex-col gap-1">{does.map((d,i)=>(
+                                <li key={i} className="flex gap-2 items-start text-sm lg:text-base text-slate-800"><span className="shrink-0 w-6 h-6 rounded-full bg-mblue-600 text-white text-xs font-black flex items-center justify-center">{i+1}</span><span>{d}</span></li>
+                              ))}</ol>
+                            </div>
+                          )}
+                          {steps.length>0&&(
+                            <div className="mb-3">
+                              <div className="text-sm lg:text-base font-black text-mblue-900 mb-1">🧭 이 직업이 되는 길</div>
+                              <div className="flex flex-wrap items-stretch gap-1.5">{steps.slice(0,6).map((st,i)=>(
+                                <React.Fragment key={i}>
+                                  {i>0&&<span aria-hidden="true" className="hidden sm:inline self-center text-mblue-400 font-black">›</span>}
+                                  <div className="flex-1 min-w-[9rem] rounded-xl bg-white border-2 border-mblue-100 p-2 text-sm text-slate-800"><span className="block text-[11px] font-black text-mblue-700">{i+1}단계</span>{st.length>140?st.slice(0,140)+'…':st}</div>
+                                </React.Fragment>
+                              ))}</div>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+                            {[['🧠 적성·흥미',tagsOf(official.aptitude),'bg-violet-50 text-violet-900 border-violet-200',null],
+                              ['🎓 관련 학과',tagsOf(official.departs),'bg-mblue-50 text-mblue-900 border-mblue-200',m=>{setUnivPanel(p=>({...p,open:true}));loadUniversities(m);}],
+                              ['📜 관련 자격',tagsOf(official.certi),'bg-amber-50 text-amber-900 border-amber-200',null]].filter(([,t])=>t.length).map(([title,tags,cls,onTag])=>(
+                              <div key={title} className="rounded-xl bg-white border-2 border-slate-100 p-2.5">
+                                <div className="text-xs lg:text-sm font-black text-slate-600 mb-1">{title}</div>
+                                <div className="flex flex-wrap gap-1">{tags.slice(0,10).map(t=>onTag
+                                  ?<button key={t} onClick={()=>onTag(t)} title="이 학과가 있는 대학 보기" className={`px-2 py-0.5 rounded-full border text-xs lg:text-sm font-bold hover:underline ${cls}`}>{t} ›</button>
+                                  :<span key={t} className={`px-2 py-0.5 rounded-full border text-xs lg:text-sm font-bold ${cls}`}>{t}</span>)}</div>
+                              </div>
                             ))}
-                          </dl>
+                          </div>
+                          <details className="mt-3">
+                            <summary className="cursor-pointer text-xs lg:text-sm font-bold text-mblue-800">📋 표로 보기 (원문 그대로)</summary>
+                            <table className="mt-2 w-full border-collapse text-sm bg-white">
+                              <tbody>{[['하는 일',official.does],['적성·흥미',official.aptitude],['관련 학과',official.departs],['관련 자격',official.certi],['임금',official.wage],['일자리 전망',official.forecast],['되는 길',official.prepare]].filter(([,v])=>v).map(([k,v])=>(
+                                <tr key={k} className="border-t border-slate-200 align-top"><th className="w-[7rem] p-2 text-left font-black text-mblue-900 bg-mblue-50">{k}</th><td className="p-2 text-slate-800 whitespace-pre-line">{v}</td></tr>
+                              ))}</tbody>
+                            </table>
+                          </details>
                           <p className="mt-2 text-xs text-slate-500">출처: 커리어넷 직업백과(교육부·한국직업능력연구원){official.updated?` · ${official.updated}`:''}{official.url&&<> · <a href={official.url} target="_blank" rel="noopener noreferrer" className="font-bold text-mblue-700 underline">커리어넷에서 자세히 보기</a></>}</p>
                         </div>
-                      )}
+                        );
+                      })()}
                       <div className="rounded-2xl border-2 border-slate-200 p-4">
                         <div className="font-black text-slate-800 mb-1">📋 우리 학교에서 배울 수 있는 과목{jobInfo.ai&&<span className="ml-2 text-sm font-black text-red-700">— AI추천 (주의!! 상담 및 고민 필요)</span>}</div>
                         <p className="text-xs lg:text-sm text-slate-500 mb-3 break-keep"><b className="text-blue-800">왜?</b>는 이 직업의 어떤 면 때문에 필요한지, <b className="text-green-700">무엇을?</b>은 그 과목에서 배우는 내용입니다. 괄호 안은 개설 학기(2-1학기 = 2학년 1학기), <b className="text-blue-700">[담기]</b>를 누르면 바로 담깁니다.</p>
