@@ -3624,8 +3624,9 @@ function App() {
                         const tagsOf=t=>String(t||'').split(/[,\/\n]/).map(x=>x.replace(/\s*등$/,'').trim()).filter(Boolean);
                         const doesSrc=official_.does?'커리어넷':jobInfo.ai?'AI':'시트'; const does=listOf(official_.does||jobInfo.does).slice(0,6), steps=String(official_.prepare||'').split(/\s*(?:→|->|>|\n)\s*/).length>1?String(official_.prepare).split(/\s*(?:→|->|>|\n)\s*/).filter(Boolean):listOf(official_.prepare);
                         const tile='rounded-xl border-2 border-mblue-100 bg-white p-3 flex flex-col gap-1 min-w-0';
-                        const searchUrl=`https://www.google.com/search?q=${encodeURIComponent('커리어넷 직업정보 '+jobNameParts(jobInfo.job)[0])}`;
-                        const Missing=({what})=><div className="text-sm text-slate-400 font-bold">정보 없음 <a href={official_.url||searchUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-xs font-bold text-mblue-700 underline">커리어넷에서 {what} 확인 ›</a></div>;
+                        // 직업백과에 있으면 그 직업 쪽, 없으면 커리어넷 직업백과(직업 검색) 쪽으로
+                        const cnetUrl=official_.url||`https://www.career.go.kr/cnet/front/base/job/jobList.do?searchJobNm=${encodeURIComponent(jobNameParts(jobInfo.cnet||jobInfo.job)[0]||'')}`;
+                        const Missing=({what})=><div className="text-sm text-slate-400 font-bold">정보 없음 <a href={cnetUrl} target="_blank" rel="noopener noreferrer" title={official_.url?'커리어넷의 이 직업 쪽으로 이동':'커리어넷 직업백과에서 직업 이름으로 찾아보기'} className="ml-1 text-xs font-bold text-mblue-700 underline">{official_.url?`커리어넷에서 ${what} 확인 ›`:'커리어넷 직업백과에서 찾아보기 ›'}</a></div>;
                         const Src=({k})=><span className={`ml-1 align-middle text-[10px] font-black px-1 rounded ${k==='커리어넷'?'bg-mblue-100 text-mblue-800':k==='AI'?'bg-red-100 text-red-700':'bg-slate-100 text-slate-600'}`}>{k}</span>;
                         const fmt=n=>Number(n).toLocaleString('ko-KR');
                         return (
